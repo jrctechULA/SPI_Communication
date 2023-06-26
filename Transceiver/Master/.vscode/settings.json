@@ -14,5 +14,9 @@
     "idf.portWin": "COM3",
     "idf.pythonBinPathWin": "C:\\Users\\javie\\.espressif\\python_env\\idf5.0_py3.8_env\\Scripts\\python.exe",
     "idf.toolsPathWin": "C:\\Users\\javie\\.espressif",
-    "idf.flashType": "UART"
+    "idf.flashType": "UART",
+    "files.associations": {
+        "string_view": "c",
+        "regex": "c"
+    }
 }

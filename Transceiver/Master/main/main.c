@@ -13,7 +13,7 @@
 #define GPIO_SCLK 6
 #define GPIO_CS 7
 
-static const char TAG[] = "SPI";
+static const char TAG[] = "MASTER";
 
 uint32_t recvbuf[32]={0};
 
@@ -70,6 +70,18 @@ static esp_err_t spi_receive(int length)
     return ESP_OK;
 } 
 
+static esp_err_t spi_rw(uint32_t payload)
+{
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 32;
+    t.tx_buffer = &payload;
+    t.rx_buffer = recvbuf;
+    esp_err_t res = spi_device_transmit(handle, &t);   
+    ESP_LOGE(TAG, "Recv: %li Transm: %li", recvbuf[0], payload);
+    return ESP_OK;
+}
+
 // Main application
 void app_main(void)
 {
@@ -78,9 +90,12 @@ void app_main(void)
     while (1)
     {
         //spi_write(counter);
-        //counter++;
+        counter++;
 
-        spi_receive(4);
+        //spi_receive(4);
+
+        spi_rw(counter);
+
         vTaskDelay(pdMS_TO_TICKS(250));
     }
 }
