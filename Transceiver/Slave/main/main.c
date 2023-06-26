@@ -1,3 +1,41 @@
+/*
+___________________________________________________________________________________
+    Trans-receptor SPI:
+___________________________________________________________________________________
+    Este programa configura el puerto SPI2 de un ESP32 en modo esclavo
+    e incluye una función para enviar datos, una para recibir y una para
+    enviar y recibir al mismo tiempo (Full Duplex).
+___________________________________________________________________________________
+    La función init_spi():
+
+    1. Configura la estructura del bus spi, (spi_bus_config_t), definiendo 
+    los pines de conexión. 
+    
+    2. Configura la interfaz de conexión, definiendo el pi CS, el modo y el
+    tamaño de la cola
+
+    3. Inicializa la interfaz con las estructuras antes definidas.
+___________________________________________________________________________________
+    La función spi_write(uint32_t payload):
+
+    Envia un dato de tipo uint32_t por SPI al maestro, usando spi_slave_transmit().
+___________________________________________________________________________________
+
+    La funcion spi_receive(int length):
+
+    Recibe el número de datos de tipo uint32_t especificado en length, los datos se
+    almacenan en el array recvbuf. (La función puede recibir hasta 32 valores, sin
+    embargo, el log que se imprime sólo muestra recvbuf[0]).
+___________________________________________________________________________________
+    La función spi_rw(uint32_t payload):
+
+    Combina ambas funciones anteriores en una sola transacción, ya que se definen
+    t.tx_buffer y t.rx_buffer, implementa una comunicación full duplex.
+    A diferencia de spi_receive(), sólo se recibe un dato, dado que t.length es 32.
+    ___________________________________________________________________________________
+
+*/
+
 #include <stdio.h>
 #include <string.h>
 
