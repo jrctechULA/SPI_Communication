@@ -1,3 +1,6 @@
+//____________________________________________________________________________________________________
+// Include section:
+//____________________________________________________________________________________________________
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +11,9 @@
 #include "driver/spi_master.h"
 #include "esp_log.h"
 
+//____________________________________________________________________________________________________
+// Macro definitions:
+//____________________________________________________________________________________________________
 // Pins in use
 #define GPIO_MOSI 4
 #define GPIO_MISO 5
@@ -16,10 +22,80 @@
 
 #define STACK_SIZE 2048
 
+//____________________________________________________________________________________________________
+// Global declarations:
+//____________________________________________________________________________________________________
 uint32_t recvbuf[33]={0};
 uint32_t sendbuf[33]={0};
 
 spi_device_handle_t handle;
+
+typedef struct {
+	int** analogTables;   // Vector de apuntadores a los vectores analógicos
+    int** digitalTables;  // Vector de apuntadores a los vectores Digitales
+	int analogSize;       // Tamaño de los vectores analógicos
+    int digitalSize;      // Tamaño de los vectores analógicos
+	int numAnTables;      // Número de vectores analógicos
+    int numDigTables;     //Número de vectores digitales
+} varTables_t;
+
+//____________________________________________________________________________________________________
+// Function prototypes:
+//____________________________________________________________________________________________________
+static esp_err_t init_spi(void);
+static esp_err_t spi_write(uint32_t *payload, int nData);
+static esp_err_t spi_receive(int nData);
+
+esp_err_t tablesInit(varTables_t *tables, int numAnTables, int numDigTables, int analogSize, int digitalSize);
+esp_err_t tablesPrint(varTables_t *tables);
+esp_err_t tablesUnload(varTables_t *tables);
+esp_err_t askAnalogTable(varTables_t *Tables, uint32_t tbl);
+esp_err_t askDigitalTable(varTables_t *Tables, uint32_t tbl);
+esp_err_t askAllTables(varTables_t *Tables);
+
+void spi_task(void *pvParameters);
+
+//____________________________________________________________________________________________________
+// Main program:
+//____________________________________________________________________________________________________
+void app_main(void)
+{
+    static const char TAG[] = "Master Main";
+
+    TaskHandle_t xHandle = NULL;
+    xTaskCreate(spi_task,
+                "spi_task",
+                STACK_SIZE,
+                NULL,
+                tskIDLE_PRIORITY,
+                &xHandle);
+    
+    varTables_t s3Tables;
+    ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(s3Tables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
+    tablesInit(&s3Tables, 3,2,10,3);
+
+    tablesPrint(&s3Tables);
+
+    init_spi();
+    
+    while (1)
+    {
+        askAllTables(&s3Tables);
+        //tablesPrint(&s3Tables);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+
+    //Liberar memoria
+	//tablesUnload(&s3Tables);
+
+}
+
+//____________________________________________________________________________________________________
+// Function implementations:
+//____________________________________________________________________________________________________
+
+// SPI related functions:
+//____________________________________________________________________________________________________
 
 static esp_err_t init_spi(void) 
 {
@@ -73,14 +149,9 @@ static esp_err_t spi_receive(int nData)
     return ESP_OK;
 } 
 
-typedef struct {
-	int** analogTables;   // Vector de apuntadores a los vectores analógicos
-    int** digitalTables;  // Vector de apuntadores a los vectores Digitales
-	int analogSize;       // Tamaño de los vectores analógicos
-    int digitalSize;      // Tamaño de los vectores analógicos
-	int numAnTables;      // Número de vectores analógicos
-    int numDigTables;     //Número de vectores digitales
-} varTables_t;
+
+// Tables and dynamic memory related functions:
+//____________________________________________________________________________________________________
 
 esp_err_t tablesInit(varTables_t *tables, int numAnTables, int numDigTables, int analogSize, int digitalSize){
     static const char TAG[] = "tablesInit";
@@ -215,6 +286,9 @@ esp_err_t askAllTables(varTables_t *Tables){
     return ESP_OK;
 }
 
+
+// freeRTOS tasks implementations:
+//____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
 {
     while (1) {
@@ -226,35 +300,5 @@ void spi_task(void *pvParameters)
 
 
 
-void app_main(void)
-{
-    static const char TAG[] = "Master Main";
 
-    TaskHandle_t xHandle = NULL;
-    xTaskCreate(spi_task,
-                "spi_task",
-                STACK_SIZE,
-                NULL,
-                tskIDLE_PRIORITY,
-                &xHandle);
-    
-    varTables_t s3Tables;
-    ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(s3Tables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
-    tablesInit(&s3Tables, 3,2,10,3);
-
-    tablesPrint(&s3Tables);
-
-    init_spi();
-    
-    while (1)
-    {
-        askAllTables(&s3Tables);
-        //tablesPrint(&s3Tables);
-        vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-
-    //Liberar memoria
-	//tablesUnload(&s3Tables);
-
-}
 
