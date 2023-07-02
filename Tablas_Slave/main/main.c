@@ -50,45 +50,19 @@ esp_err_t tablesUnload(varTables_t *tables);
 //____________________________________________________________________________________________________
 void app_main(void)
 {
-    static const char TAG[] = "Master Main";
+    static const char TAG[] = "Slave Main";
     
     varTables_t IOTables;
     ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(IOTables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
     tablesInit(&IOTables, 3,2,10,3);
 
     tablesPrint(&IOTables);
-
-    //Rellenar los vectores analógicos:
-	ESP_LOGI(TAG, "Rellenando vectores analógicos... %i vectores, Tamaño: %i", IOTables.numAnTables, IOTables.analogSize);
-
-    for (int i=0; i<IOTables.numAnTables; i++){
-		for (int j=0; j<IOTables.analogSize; j++){		
-			IOTables.analogTables[i][j]= (i+1)*(j+1);
-		}
-	}
-
-    //Rellenar los vectores digitales:
-	ESP_LOGI(TAG, "Rellenando vectores digitales... %i vectores, Tamaño: %i", IOTables.numDigTables, IOTables.digitalSize);
-    for (int i=0; i<IOTables.numDigTables; i++){
-		for (int j=0; j<IOTables.digitalSize; j++){		
-			IOTables.digitalTables[i][j]= (i+1)*(j+1);
-		}
-	}
-    ESP_LOGI(TAG, "Tablas cargadas\n\n");
-
-    tablesPrint(&IOTables);
-
-    //Liberar memoria
-	//tablesUnload(&IOTables);
-
+    
     init_spi();
-    int counter = 0;
     while (1)
     {
         // Chequear petición
-        recvbuf[0] = 0;
-        recvbuf[1] = 0;
-        recvbuf[2] = 0;
+        memset(recvbuf, 0, sizeof(recvbuf));
         spi_receive(3);
         if (recvbuf[0] != 0){  //Valid request
             if(recvbuf[0] == 1){ //Request for analog table
@@ -103,33 +77,34 @@ void app_main(void)
             }
         }
         else {
-            sendbuf[0] = 99;
+            sendbuf[0] = 0xFFFFFFFF;
             spi_write(sendbuf, 1);
-            printf("Zero\n");
+            printf("Command not recognized!\n");
         }
 
 
-        //Rellenar los vectores analógicos:
-        //ESP_LOGI(TAG, "Rellenando vectores analógicos... %i vectores, Tamaño: %i", IOTables.numAnTables, IOTables.analogSize);
-
+        //Actualizar los vectores analógicos:
+        //ESP_LOGI(TAG, "Actualizando vectores analógicos... %i vectores, Tamaño: %i", IOTables.numAnTables, IOTables.analogSize);
         for (int i=0; i<IOTables.numAnTables; i++){
             for (int j=0; j<IOTables.analogSize; j++){		
-                IOTables.analogTables[i][j]= (i+1)*(j+1) + counter;
+                IOTables.analogTables[i][j] += 1;
             }
         }
 
-        //Rellenar los vectores digitales:
-        //ESP_LOGI(TAG, "Rellenando vectores digitales... %i vectores, Tamaño: %i", IOTables.numDigTables, IOTables.digitalSize);
+        //Actualizar los vectores digitales:
+        //ESP_LOGI(TAG, "Actualizando vectores digitales... %i vectores, Tamaño: %i", IOTables.numDigTables, IOTables.digitalSize);
         for (int i=0; i<IOTables.numDigTables; i++){
             for (int j=0; j<IOTables.digitalSize; j++){		
-                IOTables.digitalTables[i][j]= (i+1)*(j+1) + counter;
+                IOTables.digitalTables[i][j] += 1;
             }
         }
         //ESP_LOGI(TAG, "Tablas cargadas\n\n");
-        counter++;
 
         vTaskDelay(pdMS_TO_TICKS(100));
     }
+
+    //Liberar memoria
+	//tablesUnload(&IOTables);
 }
 
 
@@ -270,4 +245,3 @@ esp_err_t tablesUnload(varTables_t *tables){
     ESP_LOGI(TAG, "Memoria liberada");
     return ESP_OK;
 }
-

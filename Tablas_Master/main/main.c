@@ -254,12 +254,18 @@ esp_err_t askAnalogTable(varTables_t *Tables, uint32_t tbl){
     vTaskDelay(pdMS_TO_TICKS(25));
     spi_receive(Tables->analogSize);
     //vTaskDelay(pdMS_TO_TICKS(10));
-    for (int j=0; j < Tables->analogSize; j++){
-        Tables->analogTables[sendbuf[1]][j] = recvbuf[j];
-        recvbuf[j]=0;
-        printf("%lu ", (uint32_t)Tables->analogTables[sendbuf[1]][j]);
+    if (recvbuf[0] != 0xFFFFFFFF){
+        for (int j=0; j < Tables->analogSize; j++){
+            Tables->analogTables[sendbuf[1]][j] = recvbuf[j];
+            recvbuf[j]=0;
+            printf("%lu ", (uint32_t)Tables->analogTables[sendbuf[1]][j]);
+        }
+        printf("\n");
     }
-    printf("\n");
+    else {
+        printf("Communication error! try again...\n");
+        return ESP_FAIL;
+    }
     vTaskDelay(pdMS_TO_TICKS(100));
     return ESP_OK;
 }
@@ -273,12 +279,18 @@ esp_err_t askDigitalTable(varTables_t *Tables, uint32_t tbl){
     vTaskDelay(pdMS_TO_TICKS(25));
     spi_receive(Tables->digitalSize);
     //vTaskDelay(pdMS_TO_TICKS(10));
-    for (int j=0; j < Tables->digitalSize; j++){
-        Tables->digitalTables[sendbuf[1]][j] = recvbuf[j];
-        recvbuf[j]=0;
-        printf("%lu ", (uint32_t)Tables->digitalTables[sendbuf[1]][j]);
+    if (recvbuf[0] != 0xFFFFFFFF){
+        for (int j=0; j < Tables->digitalSize; j++){
+            Tables->digitalTables[sendbuf[1]][j] = recvbuf[j];
+            recvbuf[j]=0;
+            printf("%lu ", (uint32_t)Tables->digitalTables[sendbuf[1]][j]);
+        }
+        printf("\n");
     }
-    printf("\n");
+    else {
+        printf("Communication error! try again...\n");
+        return ESP_FAIL;
+    }
     vTaskDelay(pdMS_TO_TICKS(100));
     return ESP_OK;
 }
@@ -310,7 +322,7 @@ void spi_task(void *pvParameters)
 
         askAllTables(&s3Tables);
         //tablesPrint(&s3Tables);
-        
+
         gpio_set_level(ledYellow,0);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
