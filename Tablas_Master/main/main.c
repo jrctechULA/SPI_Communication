@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "driver/gpio.h"
+
 #include "driver/spi_master.h"
 #include "esp_log.h"
 
@@ -19,6 +21,9 @@
 #define GPIO_MISO 5
 #define GPIO_SCLK 6
 #define GPIO_CS 7
+
+#define ledYellow 37
+#define ledGreen 36
 
 #define STACK_SIZE 2048
 
@@ -38,6 +43,8 @@ typedef struct {
 	int numAnTables;      // Número de vectores analógicos
     int numDigTables;     //Número de vectores digitales
 } varTables_t;
+
+varTables_t s3Tables;
 
 //____________________________________________________________________________________________________
 // Function prototypes:
@@ -62,6 +69,19 @@ void app_main(void)
 {
     static const char TAG[] = "Master Main";
 
+    gpio_reset_pin(ledYellow);
+    gpio_set_direction(ledYellow, GPIO_MODE_OUTPUT);
+    gpio_set_level(ledYellow,0);
+
+    gpio_reset_pin(ledGreen);
+    gpio_set_direction(ledGreen, GPIO_MODE_OUTPUT);
+    gpio_set_level(ledGreen,0);
+
+    ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(s3Tables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
+    tablesInit(&s3Tables, 3,2,10,3);
+
+    tablesPrint(&s3Tables);
+
     TaskHandle_t xHandle = NULL;
     xTaskCreate(spi_task,
                 "spi_task",
@@ -69,22 +89,14 @@ void app_main(void)
                 NULL,
                 tskIDLE_PRIORITY,
                 &xHandle);
-    
-    varTables_t s3Tables;
-    ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(s3Tables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
-    tablesInit(&s3Tables, 3,2,10,3);
 
-    tablesPrint(&s3Tables);
-
-    init_spi();
-    
-    while (1)
-    {
-        askAllTables(&s3Tables);
-        //tablesPrint(&s3Tables);
-        vTaskDelay(pdMS_TO_TICKS(5000));
+    while (1){
+        gpio_set_level(ledGreen,0);    
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        gpio_set_level(ledGreen,1);    
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
-
+    
     //Liberar memoria
 	//tablesUnload(&s3Tables);
 
@@ -291,10 +303,16 @@ esp_err_t askAllTables(varTables_t *Tables){
 //____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
 {
-    while (1) {
-        // Código de la tarea aquí
-        printf("\nHola desde la task!\n");
-        vTaskDelay(pdMS_TO_TICKS(1000)); // Retardo de 1 segundo
+    init_spi();
+    while (1)
+    {
+        gpio_set_level(ledYellow,1);
+
+        askAllTables(&s3Tables);
+        //tablesPrint(&s3Tables);
+        
+        gpio_set_level(ledYellow,0);
+        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 
