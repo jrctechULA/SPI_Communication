@@ -38,9 +38,10 @@ typedef struct {
 //____________________________________________________________________________________________________
 // Function prototypes:
 //____________________________________________________________________________________________________
-static esp_err_t init_spi(void);
-static esp_err_t spi_receive(int nData);
-static esp_err_t spi_write(uint32_t *payload, int nData);
+esp_err_t init_spi(void);
+esp_err_t spi_receive(int nData);
+esp_err_t spi_write(uint32_t *payload, int nData);
+
 esp_err_t tablesInit(varTables_t *tables, int numAnTables, int numDigTables, int analogSize, int digitalSize);
 esp_err_t tablesPrint(varTables_t *tables);
 esp_err_t tablesUnload(varTables_t *tables);
@@ -115,7 +116,7 @@ void app_main(void)
 // SPI related functions:
 //____________________________________________________________________________________________________
 
-static esp_err_t init_spi(void) 
+esp_err_t init_spi(void) 
 {
     // Configuration for the SPI bus
     spi_bus_config_t buscfg={
@@ -139,7 +140,7 @@ static esp_err_t init_spi(void)
     return ESP_OK;
 }
 
-static esp_err_t spi_receive(int nData)
+esp_err_t spi_receive(int nData)
 {
     static const char TAG[] = "SPI Slave";
     spi_slave_transaction_t t;
@@ -152,7 +153,7 @@ static esp_err_t spi_receive(int nData)
     return ESP_OK;
 } 
 
-static esp_err_t spi_write(uint32_t *payload, int nData) 
+esp_err_t spi_write(uint32_t *payload, int nData) 
 {
     //static const char TAG[] = "SPI Slave";
     spi_slave_transaction_t t;
