@@ -11,16 +11,13 @@
 #include "driver/gpio.h"
 
 #include "driver/spi_master.h"
+#include "SPI_IO_Master.h"
+
 #include "esp_log.h"
 
 //____________________________________________________________________________________________________
 // Macro definitions:
 //____________________________________________________________________________________________________
-// Pins in use
-#define GPIO_MOSI 4
-#define GPIO_MISO 5
-#define GPIO_SCLK 6
-#define GPIO_CS 7
 
 #define ledYellow 37
 #define ledGreen 36
@@ -30,8 +27,9 @@
 //____________________________________________________________________________________________________
 // Global declarations:
 //____________________________________________________________________________________________________
-uint32_t recvbuf[33]={0};
-uint32_t sendbuf[33]={0};
+
+DMA_ATTR uint32_t recvbuf[33]={0};
+DMA_ATTR uint32_t sendbuf[33]={0};
 
 spi_device_handle_t handle;
 
@@ -49,9 +47,6 @@ varTables_t s3Tables;
 //____________________________________________________________________________________________________
 // Function prototypes:
 //____________________________________________________________________________________________________
-esp_err_t init_spi(void);
-esp_err_t spi_write(uint32_t *payload, int nData);
-esp_err_t spi_receive(int nData);
 
 esp_err_t tablesInit(varTables_t *tables, int numAnTables, int numDigTables, int analogSize, int digitalSize);
 esp_err_t tablesPrint(varTables_t *tables);
@@ -59,7 +54,12 @@ esp_err_t tablesUnload(varTables_t *tables);
 esp_err_t askAnalogTable(varTables_t *Tables, uint32_t tbl);
 esp_err_t askDigitalTable(varTables_t *Tables, uint32_t tbl);
 esp_err_t askAllTables(varTables_t *Tables);
-
+esp_err_t askAnalogData(varTables_t *Tables, uint32_t tbl, int dataIndex);
+esp_err_t askDigitalData(varTables_t *Tables, uint32_t tbl, int dataIndex);
+esp_err_t writeAnalogTable(varTables_t *Tables, uint32_t tbl);
+esp_err_t writeDigitalTable(varTables_t *Tables, uint32_t tbl);
+esp_err_t writeAnalogData(varTables_t *Tables, uint32_t tbl, int dataIndex, uint32_t payload);
+esp_err_t writeDigitalData(varTables_t *Tables, uint32_t tbl, int dataIndex, uint32_t payload);
 void spi_task(void *pvParameters);
 
 //____________________________________________________________________________________________________
@@ -105,62 +105,6 @@ void app_main(void)
 //____________________________________________________________________________________________________
 // Function implementations:
 //____________________________________________________________________________________________________
-
-// SPI related functions:
-//____________________________________________________________________________________________________
-
-esp_err_t init_spi(void) 
-{
-    // Configuration for the SPI bus
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = GPIO_MOSI,
-        .miso_io_num = GPIO_MISO,
-        .sclk_io_num = GPIO_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1};
-
-    // Configuration for the SPI device on the other side of the bus
-    spi_device_interface_config_t devcfg = {
-        .command_bits = 0,
-        .address_bits = 0,
-        .dummy_bits = 0,
-        .clock_speed_hz = SPI_MASTER_FREQ_8M,   //8MHz
-        .duty_cycle_pos = 128, // 50% duty cycle
-        .mode = 0,
-        .spics_io_num = GPIO_CS,
-        .cs_ena_posttrans = 0, // Keep the CS low 0 cycles after transaction
-        .queue_size = 3};
-
-
-    spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
-    spi_bus_add_device(SPI2_HOST, &devcfg, &handle);
-    return ESP_OK;
-}
-
-esp_err_t spi_write(uint32_t *payload, int nData) 
-{
-    static const char TAG[] = "SPI Master";
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
-    t.tx_buffer = payload;
-    spi_device_transmit(handle, &t);
-    ESP_LOGI(TAG, "Transmitted: %lu %lu %lu", payload[0], payload[1], payload[2]);
-    return ESP_OK;
-}
-
-esp_err_t spi_receive(int nData)
-{
-    //static const char TAG[] = "SPI Master";
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
-    t.rx_buffer = recvbuf;
-    spi_device_transmit(handle, &t);   
-    /* ESP_LOGE(TAG, "Received %lu %lu %lu %lu", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3]); */
-    return ESP_OK;
-} 
-
 
 // Tables and dynamic memory related functions:
 //____________________________________________________________________________________________________
@@ -249,8 +193,9 @@ esp_err_t askAnalogTable(varTables_t *Tables, uint32_t tbl){
     sendbuf[0] = 1;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
+    sendbuf[3] = 0;
         
-    spi_write(sendbuf, 3);
+    spi_write(sendbuf, 4);
     vTaskDelay(pdMS_TO_TICKS(25));
     spi_receive(Tables->analogSize);
     //vTaskDelay(pdMS_TO_TICKS(10));
@@ -274,8 +219,9 @@ esp_err_t askDigitalTable(varTables_t *Tables, uint32_t tbl){
     sendbuf[0] = 2;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
+    sendbuf[3] = 0;
         
-    spi_write(sendbuf, 3);
+    spi_write(sendbuf, 4);
     vTaskDelay(pdMS_TO_TICKS(25));
     spi_receive(Tables->digitalSize);
     //vTaskDelay(pdMS_TO_TICKS(10));
@@ -310,6 +256,97 @@ esp_err_t askAllTables(varTables_t *Tables){
     return ESP_OK;
 }
 
+esp_err_t askAnalogData(varTables_t *Tables, uint32_t tbl, int dataIndex){
+    sendbuf[0] = 3;
+    sendbuf[1] = tbl;
+    sendbuf[2] = dataIndex;
+    sendbuf[3] = 0;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    spi_receive(1);
+    if (recvbuf[0] != 0xFFFFFFFF){
+        Tables->analogTables[sendbuf[1]][sendbuf[2]] = recvbuf[0];
+        recvbuf[0]=0;
+        printf("%lu\n", (uint32_t)Tables->analogTables[sendbuf[1]][sendbuf[2]]);
+    }
+    else {
+        printf("Communication error! try again...\n");
+        return ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK;
+
+}
+
+esp_err_t askDigitalData(varTables_t *Tables, uint32_t tbl, int dataIndex){
+    sendbuf[0] = 4;
+    sendbuf[1] = tbl;
+    sendbuf[2] = dataIndex;
+    sendbuf[3] = 0;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    spi_receive(1);
+    if (recvbuf[0] != 0xFFFFFFFF){
+        Tables->digitalTables[sendbuf[1]][sendbuf[2]] = recvbuf[0];
+        recvbuf[0]=0;
+        printf("%lu\n", (uint32_t)Tables->digitalTables[sendbuf[1]][sendbuf[2]]);
+    }
+    else {
+        printf("Communication error! try again...\n");
+        return ESP_FAIL;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK;
+}
+
+esp_err_t writeAnalogTable(varTables_t *Tables, uint32_t tbl){
+    sendbuf[0] = 5;
+    sendbuf[1] = tbl;
+    sendbuf[2] = 0;
+    sendbuf[3] = 0;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    spi_write((uint32_t *)s3Tables.analogTables[tbl], s3Tables.analogSize);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK;
+}
+
+esp_err_t writeDigitalTable(varTables_t *Tables, uint32_t tbl){
+    sendbuf[0] = 6;
+    sendbuf[1] = tbl;
+    sendbuf[2] = 0;
+    sendbuf[3] = 0;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(25));
+    spi_write((uint32_t *)s3Tables.digitalTables[tbl], s3Tables.digitalSize);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    return ESP_OK; 
+}
+
+esp_err_t writeAnalogData(varTables_t *Tables, uint32_t tbl, int dataIndex, uint32_t payload){
+    sendbuf[0] = 7;
+    sendbuf[1] = tbl;
+    sendbuf[2] = dataIndex;
+    sendbuf[3] = payload;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(100)); 
+    return ESP_OK;
+}
+esp_err_t writeDigitalData(varTables_t *Tables, uint32_t tbl, int dataIndex, uint32_t payload){
+    sendbuf[0] = 8;
+    sendbuf[1] = tbl;
+    sendbuf[2] = dataIndex;
+    sendbuf[3] = payload;
+        
+    spi_write(sendbuf, 4);
+    vTaskDelay(pdMS_TO_TICKS(100)); 
+    return ESP_OK;
+}
 
 // freeRTOS tasks implementations:
 //____________________________________________________________________________________________________
@@ -320,9 +357,54 @@ void spi_task(void *pvParameters)
     {
         gpio_set_level(ledYellow,1);
 
-        askAllTables(&s3Tables);
+        //______________________________________________________
+        //Ask tables testing code:
+
+        //askAllTables(&s3Tables);
         //tablesPrint(&s3Tables);
 
+        //______________________________________________________
+        //Ask single data testing code:
+
+        /* for (int i = 0; i < s3Tables.numAnTables; i++){
+            for (int j = 0; j < s3Tables.analogSize; j++){
+                askAnalogData(&s3Tables, i, j);
+            }
+        }
+        for (int i = 0; i < s3Tables.numDigTables; i++){
+            for (int j = 0; j < s3Tables.digitalSize; j++){
+                askDigitalData(&s3Tables, i, j);
+            }
+        } */
+
+
+        //______________________________________________________
+        //Write table testing code:
+
+        for (int i = 0; i < s3Tables.analogSize; i++){
+            s3Tables.analogTables[1][i] = i+555;
+        }
+        writeAnalogTable(&s3Tables, 1);
+
+        for (int i = 0; i < s3Tables.digitalSize; i++){
+            s3Tables.digitalTables[1][i] = i+976;
+        }
+        writeDigitalTable(&s3Tables, 1);
+        
+        //______________________________________________________
+        //Write single data testing code:
+
+        /* for (int i = 0; i < s3Tables.numAnTables; i++){
+            for (int j = 0; j < s3Tables.analogSize; j++){
+                writeAnalogData(&s3Tables, i, j, i+j);
+            }
+        }
+        for (int i = 0; i < s3Tables.numDigTables; i++){
+            for (int j = 0; j < s3Tables.digitalSize; j++){
+                writeDigitalData(&s3Tables, i, j, i+j);
+            }
+        } */
+        
         gpio_set_level(ledYellow,0);
         vTaskDelay(pdMS_TO_TICKS(5000));
     }

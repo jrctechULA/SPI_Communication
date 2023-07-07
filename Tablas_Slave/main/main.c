@@ -9,22 +9,19 @@
 #include "freertos/task.h"
 
 #include "driver/spi_slave.h"
+#include "SPI_IO_Slave.h"
 #include "esp_log.h"
 
 //____________________________________________________________________________________________________
 // Macro definitions:
 //____________________________________________________________________________________________________
-// Pins in use
-#define GPIO_MOSI 12
-#define GPIO_MISO 13
-#define GPIO_SCLK 15
-#define GPIO_CS 14
+
 
 //____________________________________________________________________________________________________
 // Global declarations:
 //____________________________________________________________________________________________________
-uint32_t recvbuf[32]={0};
-uint32_t sendbuf[32]={0};
+DMA_ATTR uint32_t recvbuf[32]={0};
+DMA_ATTR uint32_t sendbuf[32]={0};
 
 typedef struct {
 	int** analogTables;   // Vector de apuntadores a los vectores analógicos
@@ -38,9 +35,6 @@ typedef struct {
 //____________________________________________________________________________________________________
 // Function prototypes:
 //____________________________________________________________________________________________________
-esp_err_t init_spi(void);
-esp_err_t spi_receive(int nData);
-esp_err_t spi_write(uint32_t *payload, int nData);
 
 esp_err_t tablesInit(varTables_t *tables, int numAnTables, int numDigTables, int analogSize, int digitalSize);
 esp_err_t tablesPrint(varTables_t *tables);
@@ -58,32 +52,98 @@ void app_main(void)
     tablesInit(&IOTables, 3,2,10,3);
 
     tablesPrint(&IOTables);
+    uint32_t tbl, payload;
+    int dataIndex;
     
     init_spi();
     while (1)
     {
-        // Chequear petición
+        // Check request:
         memset(recvbuf, 0, sizeof(recvbuf));
-        spi_receive(3);
-        if (recvbuf[0] != 0){  //Valid request
-            if(recvbuf[0] == 1){ //Request for analog table
+        spi_receive(4);
+        switch (recvbuf[0])
+        {
+            case 1:             //Request for analog table
                 printf("Requested analog table %li\n", recvbuf[1]);
                 printf("%i %i %i %i %i %i %i %i %i %i\n", IOTables.analogTables[recvbuf[1]][0], IOTables.analogTables[recvbuf[1]][1], IOTables.analogTables[recvbuf[1]][2], IOTables.analogTables[recvbuf[1]][3], IOTables.analogTables[recvbuf[1]][4], IOTables.analogTables[recvbuf[1]][5], IOTables.analogTables[recvbuf[1]][6], IOTables.analogTables[recvbuf[1]][7], IOTables.analogTables[recvbuf[1]][8], IOTables.analogTables[recvbuf[1]][9]);
                 spi_write(IOTables.analogTables[recvbuf[1]], IOTables.analogSize);
-            }
-            else if (recvbuf[0] == 2) { //Request for digital table
+                break;
+
+            case 2:             //Request for digital table
                 printf("Requested digital table %li\n", recvbuf[1]);
                 printf("%i %i %i\n", IOTables.digitalTables[recvbuf[1]][0], IOTables.digitalTables[recvbuf[1]][1], IOTables.digitalTables[recvbuf[1]][2]);
                 spi_write(IOTables.digitalTables[recvbuf[1]], IOTables.digitalSize);
-            }
-        }
-        else {
-            sendbuf[0] = 0xFFFFFFFF;
-            spi_write(sendbuf, 1);
-            printf("Command not recognized!\n");
-        }
+                break;
 
+            case 3:             //Request for single analog value
+                printf("Requested value %li from analog table %li\n", recvbuf[2], recvbuf[1]);
+                printf("%i\n", IOTables.analogTables[recvbuf[1]][recvbuf[2]]);
+                spi_write(&IOTables.analogTables[recvbuf[1]][recvbuf[2]], 1);
+                break;
+            case 4:             //Request for single digital value
+                printf("Requested value %li from digital table %li\n", recvbuf[2], recvbuf[1]);
+                printf("%i\n", IOTables.digitalTables[recvbuf[1]][recvbuf[2]]);
+                spi_write(&IOTables.digitalTables[recvbuf[1]][recvbuf[2]], 1);
+                break;
 
+            case 5:             //Request for write analog table
+                tbl = recvbuf[1];
+                printf("Write request to analog table %li\n", tbl);
+                spi_receive(IOTables.analogSize);
+                //vTaskDelay(pdMS_TO_TICKS(10));
+                
+                for (int j=0; j < IOTables.analogSize; j++){
+                    IOTables.analogTables[tbl][j] = recvbuf[j];
+                    printf("%lu ", (uint32_t)IOTables.analogTables[tbl][j]);
+                    recvbuf[j]=0;
+                }
+                printf("\n");
+                
+                break;
+
+                case 6:             //Request for write digital table
+                    tbl = recvbuf[1];
+                    printf("Write request to digital table %li\n", tbl);
+                    spi_receive(IOTables.digitalSize);
+                    //vTaskDelay(pdMS_TO_TICKS(10));
+                    
+                    for (int j=0; j < IOTables.digitalSize; j++){
+                        IOTables.digitalTables[tbl][j] = recvbuf[j];
+                        printf("%lu ", (uint32_t)IOTables.digitalTables[tbl][j]);
+                        recvbuf[j]=0;
+                    }
+                    printf("\n");
+                    break;
+                case 7:             //Request for write single analog data
+                    tbl = recvbuf[1];
+                    dataIndex = recvbuf[2];
+                    payload = recvbuf[3];
+                    IOTables.analogTables[tbl][dataIndex] = payload;
+                    printf("Written %lu to analog table %lu at index %i\n", (uint32_t)IOTables.analogTables[tbl][dataIndex], tbl, dataIndex);
+                    break;
+                
+                case 8:             //Request for write single digital data
+                    tbl = recvbuf[1];
+                    dataIndex = recvbuf[2];
+                    payload = recvbuf[3];
+                    IOTables.digitalTables[tbl][dataIndex] = payload;
+                    printf("Written %lu to digital table %lu at index %i\n", (uint32_t)IOTables.digitalTables[tbl][dataIndex], tbl, dataIndex);
+                    break;
+
+                break;
+
+            case 0:             //Communication error
+                sendbuf[0] = 0xFFFFFFFF;
+                spi_write(sendbuf, 1);
+                printf("Communication error!\n");
+                break;
+
+            default:            //Command not recognized
+                sendbuf[0] = 0xFFFFFFFF;
+                spi_write(sendbuf, 1);
+                printf("Command not recognized!\n");
+        }
+        
         //Actualizar los vectores analógicos:
         //ESP_LOGI(TAG, "Actualizando vectores analógicos... %i vectores, Tamaño: %i", IOTables.numAnTables, IOTables.analogSize);
         for (int i=0; i<IOTables.numAnTables; i++){
@@ -104,7 +164,7 @@ void app_main(void)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    //Liberar memoria
+    //Free memory
 	//tablesUnload(&IOTables);
 }
 
@@ -112,58 +172,6 @@ void app_main(void)
 //____________________________________________________________________________________________________
 // Function implementations:
 //____________________________________________________________________________________________________
-
-// SPI related functions:
-//____________________________________________________________________________________________________
-
-esp_err_t init_spi(void) 
-{
-    // Configuration for the SPI bus
-    spi_bus_config_t buscfg={
-        .mosi_io_num=GPIO_MOSI,
-        .miso_io_num=GPIO_MISO,
-        .sclk_io_num=GPIO_SCLK,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-    };
-
-    // Configuration for the SPI slave interface
-    spi_slave_interface_config_t slvcfg={
-        .mode=0,
-        .spics_io_num=GPIO_CS,
-        .queue_size=3,
-        .flags=0,
-    };
-
-    // Initialize SPI slave interface
-    spi_slave_initialize(SPI2_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO);
-    return ESP_OK;
-}
-
-esp_err_t spi_receive(int nData)
-{
-    static const char TAG[] = "SPI Slave";
-    spi_slave_transaction_t t;
-    memset(&t, 0, sizeof(t));
-    t.length = nData * 32 + 32;
-    t.rx_buffer = recvbuf;
-    esp_err_t res = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-    if (res == ESP_OK)
-        ESP_LOGE(TAG, "Received %lu %lu %lu %lu", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3]);
-    return ESP_OK;
-} 
-
-esp_err_t spi_write(uint32_t *payload, int nData) 
-{
-    //static const char TAG[] = "SPI Slave";
-    spi_slave_transaction_t t;
-    memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
-    t.tx_buffer = payload;
-    spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-    //ESP_LOGI(TAG, "Transmitted %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu ", payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9]);
-    return ESP_OK;
-}
 
 // Tables and dynamic memory related functions:
 //____________________________________________________________________________________________________
