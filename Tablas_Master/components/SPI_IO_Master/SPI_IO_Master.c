@@ -28,38 +28,48 @@ esp_err_t init_spi(void)
         .duty_cycle_pos = 128, // 50% duty cycle
         .mode = 0,
         .spics_io_num = GPIO_CS,
-        .cs_ena_posttrans = 0, // Keep the CS low 0 cycles after transaction
-        .queue_size = 3};
+        .cs_ena_posttrans = 3, // Keep the CS low 0 cycles after transaction
+        .queue_size = 5};
 
 
     spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     spi_bus_add_device(SPI2_HOST, &devcfg, &handle);
+
+    //spi_device_acquire_bus(handle, portMAX_DELAY);
     return ESP_OK;
 }
 
-esp_err_t spi_write(uint32_t *payload, int nData) 
+esp_err_t spi_write(uint16_t *payload, uint8_t nData) 
 {
     static const char TAG[] = "SPI Master";
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
+    if ((nData * 2) % 4)                //Data must be 32bit aligned!
+        t.length = nData * 16 + 16;
+    else
+        t.length = nData * 16;
     t.tx_buffer = payload;
+    t.rx_buffer = NULL;
     #ifdef SPI_USE_POLLING
         //ESP_LOGW(TAG, "Polling transactions activated!");
         spi_device_polling_transmit(handle, &t);
     #else
        spi_device_transmit(handle, &t);
     #endif
-    ESP_LOGI(TAG, "Transmitted: %lu %lu %lu %lu", payload[0], payload[1], payload[2], payload[3]);
+    ESP_LOGI(TAG, "Transmitted: %u %u %u %u %u", payload[0], payload[1], payload[2], payload[3], payload[4]);
     return ESP_OK;
 }
 
-esp_err_t spi_receive(int nData)
+esp_err_t spi_receive(uint8_t nData)
 {
-    static const char TAG[] = "SPI Master";
+    //static const char TAG[] = "SPI Master";
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
+    if ((nData * 2) % 4)                //Data must be 32bit aligned!
+        t.length = nData * 16 + 16;
+    else
+        t.length = nData * 16;
+    t.tx_buffer = NULL;
     t.rx_buffer = recvbuf;
     #ifdef SPI_USE_POLLING
         //ESP_LOGW(TAG, "Polling transactions activated!");
@@ -67,8 +77,5 @@ esp_err_t spi_receive(int nData)
     #else
        spi_device_transmit(handle, &t);
     #endif
-    /* ESP_LOGE(TAG, "Received %lu %lu %lu %lu", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3]); */
-
-    ESP_LOGE(TAG, "Reception completed");
     return ESP_OK;
 } 

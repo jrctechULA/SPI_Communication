@@ -18,6 +18,7 @@
     "files.associations": {
         "spi_io_slave.h": "c",
         "esp_log.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "spi_slave.h": "c"
     }
 }

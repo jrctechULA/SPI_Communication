@@ -33,27 +33,35 @@ esp_err_t init_spi(void)
     return ESP_OK;
 }
 
-esp_err_t spi_receive(int nData)
+esp_err_t spi_receive(uint8_t nData)
 {
     static const char TAG[] = "SPI Slave";
     spi_slave_transaction_t t;
     memset(&t, 0, sizeof(t));
-    t.length = nData * 32 + 32;
+    if ((nData * 2) % 4)                //Data must be 32bit aligned!
+        t.length = nData * 16 + 48;
+    else
+        t.length = nData * 16 + 32;
     t.rx_buffer = recvbuf;
-    esp_err_t res = spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-    if (res == ESP_OK)
-        ESP_LOGE(TAG, "Received %lu %lu %lu %lu", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3]);
+    t.tx_buffer = NULL;
+    spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
+    //if (res == ESP_OK)
+        ESP_LOGW(TAG, "Received %u %u %u %u %u", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3], recvbuf[4]);
     return ESP_OK;
 } 
 
-esp_err_t spi_write(uint32_t *payload, int nData) 
+esp_err_t spi_write(uint16_t *payload, uint8_t nData) 
 {
     //static const char TAG[] = "SPI Slave";
     spi_slave_transaction_t t;
     memset(&t, 0, sizeof(t));
-    t.length = nData * 32;
+    if ((nData * 2) % 4)                //Data must be 32bit aligned!
+        t.length = nData * 16 + 16;
+    else
+        t.length = nData * 16;
     t.tx_buffer = payload;
+    t.rx_buffer = NULL;
     spi_slave_transmit(SPI2_HOST, &t, portMAX_DELAY);
-    //ESP_LOGI(TAG, "Transmitted %lu %lu %lu %lu %lu %lu %lu %lu %lu %lu ", payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9]);
+    //ESP_LOGI(TAG, "Transmitted %u %u %u %u %u %u %u %u %u %u ", payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6], payload[7], payload[8], payload[9]);
     return ESP_OK;
 }
