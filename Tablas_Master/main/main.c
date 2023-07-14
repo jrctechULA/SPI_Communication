@@ -9,13 +9,12 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include "driver/gpio.h"
 
 #include "driver/spi_master.h"
 #include "SPI_IO_Master.h"
-
-#include "esp_crc.h"
 
 #include "esp_log.h"
 
@@ -57,6 +56,9 @@ typedef struct {
 
 varTables_t s3Tables;
 
+//The semaphore indicating the slave is ready to receive stuff.
+QueueHandle_t rdySem;
+
 //____________________________________________________________________________________________________
 // Function prototypes:
 //____________________________________________________________________________________________________
@@ -92,11 +94,35 @@ esp_err_t writeDigitalData(uint8_t tbl, uint8_t dataIndex, uint16_t payload);
 esp_err_t writeConfigData(uint8_t tbl, uint8_t dataIndex, uint16_t payload);
 esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload);
 
-void exchangeData(varTables_t *Tables);
+esp_err_t exchangeData(varTables_t *Tables);
 
-uint16_t checksumTable(uint16_t *table, uint8_t nData);
+//uint16_t checksumTable(uint16_t *table, uint8_t nData);
 
 void spi_task(void *pvParameters);
+
+
+/*
+This ISR is called when the handshake line goes high.
+*/
+static void IRAM_ATTR gpio_handshake_isr_handler(void* arg)
+{
+    //Sometimes due to interference or ringing or something, we get two irqs after eachother. This is solved by
+    //looking at the time between interrupts and refusing any interrupt too close to another one.
+    static uint32_t lasthandshaketime_us;
+    uint32_t currtime_us = esp_timer_get_time();
+    uint32_t diff = currtime_us - lasthandshaketime_us;
+    if (diff < 100) {
+        return; //ignore everything <1ms after an earlier irq
+    }
+    lasthandshaketime_us = currtime_us;
+
+    //Give the semaphore.
+    BaseType_t mustYield = false;
+    xSemaphoreGiveFromISR(rdySem, &mustYield);
+    if (mustYield) {
+        portYIELD_FROM_ISR();
+    }
+}
 
 //____________________________________________________________________________________________________
 // Main program:
@@ -112,6 +138,19 @@ void app_main(void)
     gpio_reset_pin(ledGreen);
     gpio_set_direction(ledGreen, GPIO_MODE_OUTPUT);
     gpio_set_level(ledGreen,0);
+
+    //Set up handshake line interrupt.
+    //GPIO config for the handshake line.
+    gpio_config_t io_conf={
+        .intr_type=GPIO_INTR_POSEDGE,
+        .mode=GPIO_MODE_INPUT,
+        .pull_up_en=1,
+        .pin_bit_mask=(1<<GPIO_HANDSHAKE)
+    };
+    gpio_config(&io_conf);
+    gpio_install_isr_service(0);
+    gpio_set_intr_type(GPIO_HANDSHAKE, GPIO_INTR_POSEDGE);
+    gpio_isr_handler_add(GPIO_HANDSHAKE, gpio_handshake_isr_handler, NULL);
 
     ESP_LOGI(TAG, "Tamaño del objeto: %i bytes\n", sizeof(s3Tables));  //Imprime el tamaño de la estructura, el cual es constante independientemente del número y tamaño de los vectores
     //tablesInit(&s3Tables, 3,2,10,3);
@@ -134,6 +173,11 @@ void app_main(void)
                 NULL,
                 tskIDLE_PRIORITY,
                 &xHandle);
+
+    //Create the semaphore.
+    rdySem=xSemaphoreCreateBinary();
+
+
 
     while (1){
         gpio_set_level(ledGreen,0);    
@@ -283,35 +327,21 @@ esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
-        
-    spi_write(sendbuf, 5);
-    vTaskDelay(pdMS_TO_TICKS(1));
+            
+    spi_write(sendbuf, 4);
+    
+    spi_receive(Tables->anSize);
 
-    spi_receive(Tables->anSize + 1);
-
-    uint16_t crcRecv = recvbuf[Tables->anSize];
-    uint16_t crc = checksumTable(recvbuf, Tables->anSize);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }   
-
-    //vTaskDelay(pdMS_TO_TICKS(10));
     if (recvbuf[0] != 0xFFFF){
         for (int j=0; j < Tables->anSize; j++){
             Tables->anTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
         }
-        //tablePrint(Tables->anTbl[tbl], Tables->anSize);
     }
     else {
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -320,37 +350,21 @@ esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);   
+    spi_write(sendbuf, 4);   
     
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_receive(Tables->digSize);
 
-    spi_receive(Tables->digSize + 1);
-
-    uint16_t crcRecv = recvbuf[Tables->digSize];
-    uint16_t crc = checksumTable(recvbuf, Tables->digSize);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }   
-    
-    //vTaskDelay(pdMS_TO_TICKS(10));
     if (recvbuf[0] != 0xFFFF){
         for (int j=0; j < Tables->digSize; j++){
             Tables->digTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
         }
-        //tablePrint(Tables->digTbl[tbl], Tables->digSize);
     }
     else {
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -359,37 +373,21 @@ esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);  
+    spi_write(sendbuf, 4);  
 
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_receive(Tables->configSize);
 
-    spi_receive(Tables->configSize + 1);
-
-    uint16_t crcRecv = recvbuf[Tables->configSize];
-    uint16_t crc = checksumTable(recvbuf, Tables->configSize);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }   
-    
-    //vTaskDelay(pdMS_TO_TICKS(10));
     if (recvbuf[0] != 0xFFFF){
         for (int j=0; j < Tables->configSize; j++){
             Tables->configTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
         }
-        //tablePrint(Tables->configTbl[tbl], Tables->configSize);
     }
     else {
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -398,37 +396,21 @@ esp_err_t readAuxTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-        
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
 
-    spi_receive(Tables->auxSize + 1);
+    spi_receive(Tables->auxSize);
 
-    uint16_t crcRecv = recvbuf[Tables->auxSize];
-    uint16_t crc = checksumTable(recvbuf, Tables->auxSize);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }   
-    
-    //vTaskDelay(pdMS_TO_TICKS(10));
     if (recvbuf[0] != 0xFFFF){
         for (int j=0; j < Tables->auxSize; j++){
             Tables->auxTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
         }
-        //tablePrint(Tables->auxTbl[tbl], Tables->auxSize);
     }
     else {
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -452,24 +434,10 @@ esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = 0;
-    
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
+    spi_write(sendbuf, 4);
 
-    vTaskDelay(pdMS_TO_TICKS(1));
-
-    spi_receive(2);
-
-    uint16_t crcRecv = recvbuf[1];
-    uint16_t crc = checksumTable(recvbuf, 1);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }   
-
+    spi_receive(1);
     
     if (recvbuf[0] != 0xFFFF){
         Tables->anTbl[tbl][dataIndex] = recvbuf[0];
@@ -480,7 +448,6 @@ esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 
 }
@@ -491,22 +458,9 @@ esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     sendbuf[2] = dataIndex;
     sendbuf[3] = 0;
         
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
-        
-    spi_write(sendbuf, 5);
+    spi_write(sendbuf, 4);
 
-    vTaskDelay(pdMS_TO_TICKS(1));
-
-    spi_receive(2);
-
-    uint16_t crcRecv = recvbuf[1];
-    uint16_t crc = checksumTable(recvbuf, 1);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }  
+    spi_receive(1);
 
     if (recvbuf[0] != 0xFFFF){
         Tables->digTbl[tbl][dataIndex] = recvbuf[0];
@@ -517,7 +471,6 @@ esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -526,23 +479,10 @@ esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
     
-    spi_receive(2);
-
-    uint16_t crcRecv = recvbuf[1];
-    uint16_t crc = checksumTable(recvbuf, 1);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }  
+    spi_receive(1);
 
     if (recvbuf[0] != 0xFFFF){
         Tables->configTbl[tbl][dataIndex] = recvbuf[0];
@@ -553,7 +493,6 @@ esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -562,23 +501,10 @@ esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = 0;
-    
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
     
-    spi_receive(2);
-
-    uint16_t crcRecv = recvbuf[1];
-    uint16_t crc = checksumTable(recvbuf, 1);
-    printf("CRC-Recv: %u CRC-Calc %u\n", crcRecv, crc);
-    if (crcRecv != crc){
-        ESP_LOGE("CRC Check:","Error, bad checksum!");
-        return ESP_FAIL;
-    }  
+    spi_receive(1);
 
     if (recvbuf[0] != 0xFFFF){
         Tables->auxTbl[tbl][dataIndex] = recvbuf[0];
@@ -589,7 +515,6 @@ esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         printf("Communication error! try again...\n");
         return ESP_FAIL;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
@@ -598,20 +523,12 @@ esp_err_t writeAnalogTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-    
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
 
     for (int i=0; i<s3Tables.anSize; i++)
         sendbuf[i] = s3Tables.anTbl[tbl][i];
-    sendbuf[s3Tables.anSize] = checksumTable(sendbuf, s3Tables.anSize);
-    spi_write(sendbuf, s3Tables.anSize + 1);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
+    spi_write(sendbuf, s3Tables.anSize);
     return ESP_OK;
 }
 
@@ -620,20 +537,12 @@ esp_err_t writeDigitalTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-        
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
 
     for (int i=0; i<s3Tables.digSize; i++)
         sendbuf[i] = s3Tables.digTbl[tbl][i];
-    sendbuf[s3Tables.digSize] = checksumTable(sendbuf, s3Tables.digSize);
-    spi_write(sendbuf, s3Tables.digSize + 1);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
+    spi_write(sendbuf, s3Tables.digSize);
     return ESP_OK; 
 }
 
@@ -642,20 +551,12 @@ esp_err_t writeConfigTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
 
     for (int i=0; i<s3Tables.configSize; i++)
         sendbuf[i] = s3Tables.configTbl[tbl][i];
-    sendbuf[s3Tables.configSize] = checksumTable(sendbuf, s3Tables.configSize);
-    spi_write(sendbuf, s3Tables.configSize + 1);
-
-    vTaskDelay(pdMS_TO_TICKS(10));
+    spi_write(sendbuf, s3Tables.configSize);
     return ESP_OK;
 }
 
@@ -664,21 +565,12 @@ esp_err_t writeAuxTable(varTables_t *Tables, uint8_t tbl){
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
     sendbuf[3] = 0;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-        
-    vTaskDelay(pdMS_TO_TICKS(1));
+    spi_write(sendbuf, 4);
 
     for (int i=0; i<s3Tables.auxSize; i++)
         sendbuf[i] = s3Tables.auxTbl[tbl][i];
-    sendbuf[s3Tables.auxSize] = checksumTable(sendbuf, s3Tables.auxSize);
-    spi_write(sendbuf, s3Tables.auxSize + 1);
-
-    //spi_write((uint16_t *)s3Tables.auxTbl[tbl], s3Tables.auxSize);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    spi_write(sendbuf, s3Tables.auxSize);
     return ESP_OK;
 }
 
@@ -687,13 +579,8 @@ esp_err_t writeAnalogData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
-        
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(10)); 
+       
+    spi_write(sendbuf, 4);
     return ESP_OK;
 }
 
@@ -702,13 +589,8 @@ esp_err_t writeDigitalData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(10)); 
+    spi_write(sendbuf, 4);
     return ESP_OK;
 }
 
@@ -717,13 +599,8 @@ esp_err_t writeConfigData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-        
-    vTaskDelay(pdMS_TO_TICKS(10)); 
+    spi_write(sendbuf, 4);
     return ESP_OK;
 }
 
@@ -732,34 +609,12 @@ esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
-
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
         
-    spi_write(sendbuf, 5);
-
-    vTaskDelay(pdMS_TO_TICKS(10)); 
+    spi_write(sendbuf, 4);
     return ESP_OK;
 }
 
-uint16_t checksumTable(uint16_t *table, uint8_t nData){
-    //size_t data_len = sizeof(table) / 2;
-    uint16_t crc = 0xFFFF; // Valor inicial del CRC-16
-    
-    for (size_t i = 0; i < nData; i++) {
-        uint8_t* bytes = (uint8_t*)&table[i];
-        size_t num_bytes = sizeof(table[i]);
-        
-        for (size_t j = 0; j < num_bytes; j++) {
-            //crc = esp_crc16_le(&bytes[j], 1, crc);
-            crc = esp_crc16_le(crc, &bytes[j], 1);
-        }
-    }
-    return crc;
-}
-
-
-void exchangeData(varTables_t *Tables){
+esp_err_t exchangeData(varTables_t *Tables){
     //uint64_t tiempoInicio = esp_timer_get_time();
 
     sendbuf[0] = 17;
@@ -767,54 +622,60 @@ void exchangeData(varTables_t *Tables){
     sendbuf[2] = 0;
     sendbuf[3] = 0;
 
-    sendbuf[4] = checksumTable(sendbuf, 4);
-    //printf("Checksum: %u\n", sendbuf[4]);
-        
-    spi_write(sendbuf, 5);
-    spi_receive(1);
-    printf("%u\n", recvbuf[0]);
+    //sendbuf[4] = checksumTable(sendbuf, 4);
+
+    spi_write(sendbuf, 4);
+
+    for (int i=0; i<Tables->anSize; i++){
+        sendbuf[i] = Tables->anTbl[1][i];
+    }
+    for (int i=0; i<Tables->digSize; i++){
+        sendbuf[Tables->anSize + i] = Tables->digTbl[1][i];
+    }
 
     uint64_t tiempoInicio = esp_timer_get_time();
 
-    sendbuf[Tables->anSize] = checksumTable(Tables->anTbl[0], Tables->anSize);
-    for (int i=0; i<Tables->anSize; i++)
-        sendbuf[i] = Tables->anTbl[0][i];
-    spi_write(sendbuf, Tables->anSize + 1);
-    
-    sendbuf[Tables->anSize] = checksumTable(Tables->anTbl[1], Tables->anSize);
-    for (int i=0; i<Tables->anSize; i++)
-        sendbuf[i] = Tables->anTbl[1][i];
-    spi_write(sendbuf, Tables->anSize + 1);
-
-    sendbuf[Tables->digSize] = checksumTable(Tables->digTbl[0], Tables->digSize);
-    for (int i=0; i<Tables->digSize; i++)
-        sendbuf[i] = Tables->digTbl[0][i];
-    spi_write(sendbuf, Tables->digSize + 1);
-
-    sendbuf[Tables->digSize] = checksumTable(Tables->digTbl[1], Tables->digSize);
-    for (int i=0; i<Tables->digSize; i++)
-        sendbuf[i] = Tables->digTbl[1][i];
-    spi_write(sendbuf, Tables->digSize + 1);
+    spi_exchange(Tables->anSize + Tables->digSize);
 
     uint64_t tiempoFin = esp_timer_get_time();
+
+    //Recover data from recvbuf here:
+    for (int i=0; i<Tables->anSize; i++)
+        Tables->anTbl[0][i] = recvbuf[i];
+    for (int i=0; i<Tables->digSize; i++)
+        Tables->digTbl[0][i] = recvbuf[Tables->anSize + i];
+
+    //uint64_t tiempoFin = esp_timer_get_time();
     uint64_t tiempoTranscurrido = (tiempoFin - tiempoInicio) / 1000;
     printf("El tiempo de ejecución fue de %llu milisegundos\n", tiempoTranscurrido);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    tablePrint(Tables->anTbl[0],  Tables->anSize);
+    tablePrint(Tables->anTbl[1],  Tables->anSize);
+    tablePrint(Tables->digTbl[0], Tables->digSize);
+    tablePrint(Tables->digTbl[1], Tables->digSize);
+    //vTaskDelay(pdMS_TO_TICKS(10));
+    return ESP_OK;
 }
-
-
 
 // freeRTOS tasks implementations:
 //____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
 {
     init_spi();
+
+    //xSemaphoreGive(rdySem);
+
     //______________________________________________________
-    //Dummy transactions
+    //Dummy transaction
     //______________________________________________________
-    spi_write(sendbuf, 1);
-    spi_write(sendbuf, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    /* do {
+        sendbuf[0] = 55;
+        spi_write(sendbuf, 4);
+        spi_receive(1);
+        printf("%u\n", recvbuf[0]);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    while (recvbuf[0] != 1); */
+    
 
     //______________________________________________________
     //Some test code to run once...  (See serial terminal for debug)
@@ -847,13 +708,13 @@ void spi_task(void *pvParameters)
         //______________________________________________________
         //Ask tables testing code:
 
-        readAllTables(&s3Tables);
+        //readAllTables(&s3Tables);
         
 
         //______________________________________________________
         //Ask single data testing code:
 
-        for (int i = 0; i < s3Tables.numAnTbls; i++){
+        /* for (int i = 0; i < s3Tables.numAnTbls; i++){
             for (int j = 0; j < s3Tables.anSize; j++){
                 readAnalogData(&s3Tables, i, j);
             }
@@ -862,13 +723,13 @@ void spi_task(void *pvParameters)
             for (int j = 0; j < s3Tables.digSize; j++){
                 readDigitalData(&s3Tables, i, j);
             }
-        }
+        } */
 
 
         //______________________________________________________
         //Write table testing code:
 
-        for (int i = 0; i < s3Tables.anSize; i++){
+        /* for (int i = 0; i < s3Tables.anSize; i++){
             s3Tables.anTbl[1][i] = i+555;
         }
         writeAnalogTable(&s3Tables, 1);
@@ -876,12 +737,12 @@ void spi_task(void *pvParameters)
         for (int i = 0; i < s3Tables.digSize; i++){
             s3Tables.digTbl[1][i] = i+123;
         }
-        writeDigitalTable(&s3Tables, 1);
+        writeDigitalTable(&s3Tables, 1); */
         
         //______________________________________________________
         //Write single data testing code:
 
-        for (int i = 0; i < s3Tables.numAnTbls; i++){
+        /* for (int i = 0; i < s3Tables.numAnTbls; i++){
             for (int j = 0; j < s3Tables.anSize; j++){
                 writeAnalogData(i, j, 5*j);
             }
@@ -890,36 +751,34 @@ void spi_task(void *pvParameters)
             for (int j = 0; j < s3Tables.digSize; j++){
                 writeDigitalData(i, j, 5*j);
             }
-        }
+        } */
         
 
         //______________________________________________________
         //Ask config and aux tables testing code:
 
-        readConfigTable(&s3Tables, 0);
+        /* readConfigTable(&s3Tables, 0);
         tablePrint(s3Tables.configTbl[0], s3Tables.configSize);
 
         readAuxTable(&s3Tables, 0);
-        tablePrint(s3Tables.auxTbl[0], s3Tables.auxSize);
+        tablePrint(s3Tables.auxTbl[0], s3Tables.auxSize); */
 
         //______________________________________________________
-        readAnalogData(&s3Tables, 0, 1);
+        /* readAnalogData(&s3Tables, 0, 1);
         readDigitalData(&s3Tables, 0, 1);
         readConfigData(&s3Tables, 0, 15);
-        readAuxData(&s3Tables, 0, 15);
+        readAuxData(&s3Tables, 0, 15); */
 
+        
         //______________________________________________________
-        /* for (int i=0; i<s3Tables.anSize; i++){
-            s3Tables.anTbl[0][i]++;
-            s3Tables.anTbl[1][i]++;
+        for (int i=0; i<s3Tables.anSize; i++){
+            s3Tables.anTbl[1][i] +=5;
         }
 
         for (int i=0; i<s3Tables.digSize; i++){
-            s3Tables.digTbl[0][i]++;
-            s3Tables.digTbl[1][i]++;
+            s3Tables.digTbl[1][i] +=5;
         }
-        exchangeData(&s3Tables); */
-        //______________________________________________________
+        exchangeData(&s3Tables);
 
         gpio_set_level(ledYellow,0);
         vTaskDelay(pdMS_TO_TICKS(5000));
