@@ -665,19 +665,6 @@ void spi_task(void *pvParameters)
     //xSemaphoreGive(rdySem);
 
     //______________________________________________________
-    //Dummy transaction
-    //______________________________________________________
-    /* do {
-        sendbuf[0] = 55;
-        spi_write(sendbuf, 4);
-        spi_receive(1);
-        printf("%u\n", recvbuf[0]);
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    while (recvbuf[0] != 1); */
-    
-
-    //______________________________________________________
     //Some test code to run once...  (See serial terminal for debug)
     //______________________________________________________
 
