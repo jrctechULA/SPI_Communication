@@ -35,7 +35,18 @@ esp_err_t init_spi(void)
     spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     spi_bus_add_device(SPI2_HOST, &devcfg, &handle);
 
-    //spi_device_acquire_bus(handle, portMAX_DELAY);
+    esp_err_t res;
+    do {
+        sendbuf[0] = 18;
+        sendbuf[1] = 0;
+        sendbuf[2] = 0;
+        sendbuf[3] = 0;
+
+        spi_write(sendbuf, 4);
+        res = spi_receive(4);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    } while((res != ESP_OK) || (recvbuf[0] != sendbuf[0]) || (recvbuf[1] != sendbuf[1]) || (recvbuf[2] != sendbuf[2]) || (recvbuf[3] != sendbuf[3]));
+
     return ESP_OK;
 }
 

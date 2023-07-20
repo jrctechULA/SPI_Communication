@@ -30,6 +30,9 @@
 #define STACK_SIZE 3072
 #define SPI_BUFFER_SIZE 55
 
+#define SPI_TRANSACTION_COUNT s3Tables.auxTbl[1][0]
+#define SPI_ERROR_COUNT s3Tables.auxTbl[1][1]
+
 //____________________________________________________________________________________________________
 // Global declarations:
 //____________________________________________________________________________________________________
@@ -96,6 +99,8 @@ esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload);
 
 esp_err_t exchangeData(varTables_t *Tables);
 
+void print_spi_stats();
+
 //uint16_t checksumTable(uint16_t *table, uint8_t nData);
 
 void spi_task(void *pvParameters);
@@ -157,7 +162,7 @@ void app_main(void)
     tablesInit(&s3Tables, 2,    //Tablas de variables analógicas
                           2,    //Tablas de variables digitales
                           1,    //Tablas de configuración
-                          1,    //Tablas auxiliares
+                          2,    //Tablas auxiliares          (Se ha previsto una tabla mas que en el esclavo para registros propios del S3)
                           16,   //Tamaño de tablas analógicas
                           2,    //Tamaño de tablas digitales
                           50,   //Tamaño de tablas de configuración
@@ -323,6 +328,7 @@ esp_err_t tablesUnload(varTables_t *tables){
 }
 
 esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 1;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -330,9 +336,13 @@ esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
             
     spi_write(sendbuf, 4);
     
-    spi_receive(Tables->anSize);
+    esp_err_t res = spi_receive(Tables->anSize);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         for (int j=0; j < Tables->anSize; j++){
             Tables->anTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
@@ -340,12 +350,18 @@ esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+    
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+    
     return ESP_OK;
 }
 
 esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 2;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -353,9 +369,13 @@ esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
         
     spi_write(sendbuf, 4);   
     
-    spi_receive(Tables->digSize);
+    esp_err_t res = spi_receive(Tables->digSize);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         for (int j=0; j < Tables->digSize; j++){
             Tables->digTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
@@ -363,12 +383,18 @@ esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 9;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -376,9 +402,13 @@ esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
         
     spi_write(sendbuf, 4);  
 
-    spi_receive(Tables->configSize);
+    esp_err_t res = spi_receive(Tables->configSize);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         for (int j=0; j < Tables->configSize; j++){
             Tables->configTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
@@ -386,12 +416,18 @@ esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t readAuxTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 10;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -399,9 +435,13 @@ esp_err_t readAuxTable(varTables_t *Tables, uint8_t tbl){
         
     spi_write(sendbuf, 4);
 
-    spi_receive(Tables->auxSize);
+    esp_err_t res = spi_receive(Tables->auxSize);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         for (int j=0; j < Tables->auxSize; j++){
             Tables->auxTbl[tbl][j] = recvbuf[j];
             recvbuf[j]=0;
@@ -409,8 +449,13 @@ esp_err_t readAuxTable(varTables_t *Tables, uint8_t tbl){
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
@@ -430,6 +475,7 @@ esp_err_t readAllTables(varTables_t *Tables){
 }
 
 esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 3;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -437,22 +483,32 @@ esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         
     spi_write(sendbuf, 4);
 
-    spi_receive(1);
+    esp_err_t res = spi_receive(1);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
     
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         Tables->anTbl[tbl][dataIndex] = recvbuf[0];
         recvbuf[0]=0;
         printf("%u\n", (uint16_t)Tables->anTbl[tbl][dataIndex]);
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 
 }
 
 esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 4;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -460,21 +516,31 @@ esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         
     spi_write(sendbuf, 4);
 
-    spi_receive(1);
+    esp_err_t res = spi_receive(1);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         Tables->digTbl[tbl][dataIndex] = recvbuf[0];
         recvbuf[0]=0;
         printf("%u\n", (uint16_t)Tables->digTbl[tbl][dataIndex]);
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 15;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -482,21 +548,31 @@ esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         
     spi_write(sendbuf, 4);
     
-    spi_receive(1);
+    esp_err_t res = spi_receive(1);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         Tables->configTbl[tbl][dataIndex] = recvbuf[0];
         recvbuf[0]=0;
         printf("%u\n", (uint16_t)Tables->configTbl[tbl][dataIndex]);
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 16;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -504,21 +580,31 @@ esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
         
     spi_write(sendbuf, 4);
     
-    spi_receive(1);
+    esp_err_t res = spi_receive(1);
+    if (res != ESP_OK){             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
 
-    if (recvbuf[0] != 0xFFFF){
+    if (recvbuf[0] != 0xFFFF){      //Command not recognized error condition check
         Tables->auxTbl[tbl][dataIndex] = recvbuf[0];
         recvbuf[0]=0;
         printf("%u\n", (uint16_t)Tables->auxTbl[tbl][dataIndex]);
     }
     else {
         printf("Communication error! try again...\n");
+        SPI_ERROR_COUNT++;
         return ESP_FAIL;
     }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeAnalogTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 5;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -529,10 +615,21 @@ esp_err_t writeAnalogTable(varTables_t *Tables, uint8_t tbl){
     for (int i=0; i<s3Tables.anSize; i++)
         sendbuf[i] = s3Tables.anTbl[tbl][i];
     spi_write(sendbuf, s3Tables.anSize);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+    
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeDigitalTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 6;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -543,10 +640,21 @@ esp_err_t writeDigitalTable(varTables_t *Tables, uint8_t tbl){
     for (int i=0; i<s3Tables.digSize; i++)
         sendbuf[i] = s3Tables.digTbl[tbl][i];
     spi_write(sendbuf, s3Tables.digSize);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK; 
 }
 
 esp_err_t writeConfigTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 11;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -557,10 +665,21 @@ esp_err_t writeConfigTable(varTables_t *Tables, uint8_t tbl){
     for (int i=0; i<s3Tables.configSize; i++)
         sendbuf[i] = s3Tables.configTbl[tbl][i];
     spi_write(sendbuf, s3Tables.configSize);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeAuxTable(varTables_t *Tables, uint8_t tbl){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 12;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -571,50 +690,105 @@ esp_err_t writeAuxTable(varTables_t *Tables, uint8_t tbl){
     for (int i=0; i<s3Tables.auxSize; i++)
         sendbuf[i] = s3Tables.auxTbl[tbl][i];
     spi_write(sendbuf, s3Tables.auxSize);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeAnalogData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 7;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
        
     spi_write(sendbuf, 4);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeDigitalData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 8;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
         
     spi_write(sendbuf, 4);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeConfigData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 13;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
         
     spi_write(sendbuf, 4);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
+    SPI_TRANSACTION_COUNT++;
     sendbuf[0] = 14;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
     sendbuf[3] = payload;
         
     spi_write(sendbuf, 4);
+
+    esp_err_t res = spi_receive(1);
+    if ((res != ESP_OK) || (recvbuf[0] == 0xFFFF)) {             //Checksum error condition check
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+
     return ESP_OK;
 }
 
 esp_err_t exchangeData(varTables_t *Tables){
+    SPI_TRANSACTION_COUNT++;
     //uint64_t tiempoInicio = esp_timer_get_time();
 
     sendbuf[0] = 17;
@@ -635,7 +809,12 @@ esp_err_t exchangeData(varTables_t *Tables){
 
     uint64_t tiempoInicio = esp_timer_get_time();
 
-    spi_exchange(Tables->anSize + Tables->digSize);
+    esp_err_t err = spi_exchange(Tables->anSize + Tables->digSize);
+    if (err == ESP_FAIL){
+        SPI_ERROR_COUNT++;
+        return ESP_FAIL;
+    }
+        
 
     uint64_t tiempoFin = esp_timer_get_time();
 
@@ -652,10 +831,16 @@ esp_err_t exchangeData(varTables_t *Tables){
     tablePrint(Tables->anTbl[1],  Tables->anSize);
     tablePrint(Tables->digTbl[0], Tables->digSize);
     tablePrint(Tables->digTbl[1], Tables->digSize);
+    printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT);
     //vTaskDelay(pdMS_TO_TICKS(10));
     return ESP_OK;
 }
 
+void print_spi_stats(){
+    printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT);
+}
 // freeRTOS tasks implementations:
 //____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
@@ -667,24 +852,25 @@ void spi_task(void *pvParameters)
     //______________________________________________________
     //Some test code to run once...  (See serial terminal for debug)
     //______________________________________________________
+    //vTaskDelay(pdMS_TO_TICKS(1000));
 
     //Write config table 0:
-    for (int i=0; i<s3Tables.configSize; i++)
+    /* for (int i=0; i<s3Tables.configSize; i++)
         s3Tables.configTbl[0][i] = 1;
-    writeConfigTable(&s3Tables, 0);
+    writeConfigTable(&s3Tables, 0); */
 
     //Write aux table 0:
-    for (int i=0; i<s3Tables.auxSize; i++)
+    /* for (int i=0; i<s3Tables.auxSize; i++)
         s3Tables.auxTbl[0][i] = 2;
-    writeAuxTable(&s3Tables, 0);
+    writeAuxTable(&s3Tables, 0); */
 
     //Write config and aux data at index 15:
-    writeConfigData(0, 15, 99);
-    writeAuxData(0, 15, 88);
+    //writeConfigData(0, 15, 99);
+    //writeAuxData(0, 15, 88);
 
     //Read config and aux data at index 15:
-    readConfigData(&s3Tables, 0, 15);
-    readAuxData(&s3Tables, 0, 15);
+    /* readConfigData(&s3Tables, 0, 15);
+    readAuxData(&s3Tables, 0, 15); */
 
     while (1)
     {
@@ -729,7 +915,7 @@ void spi_task(void *pvParameters)
         //______________________________________________________
         //Write single data testing code:
 
-        /* for (int i = 0; i < s3Tables.numAnTbls; i++){
+        for (int i = 0; i < s3Tables.numAnTbls; i++){
             for (int j = 0; j < s3Tables.anSize; j++){
                 writeAnalogData(i, j, 5*j);
             }
@@ -738,7 +924,11 @@ void spi_task(void *pvParameters)
             for (int j = 0; j < s3Tables.digSize; j++){
                 writeDigitalData(i, j, 5*j);
             }
-        } */
+        }
+
+        //Write config and aux data at index 15:
+        writeConfigData(0, 15, 99);
+        writeAuxData(0, 15, 88);
         
 
         //______________________________________________________
@@ -758,14 +948,26 @@ void spi_task(void *pvParameters)
 
         
         //______________________________________________________
-        for (int i=0; i<s3Tables.anSize; i++){
+
+        /* for (int i=0; i<s3Tables.configSize; i++)
+            s3Tables.configTbl[0][i] = 1;
+        writeConfigTable(&s3Tables, 0);
+
+        for (int i=0; i<s3Tables.auxSize; i++)
+            s3Tables.auxTbl[0][i] = 1;
+        writeAuxTable(&s3Tables, 0); */
+
+
+        /* for (int i=0; i<s3Tables.anSize; i++){
             s3Tables.anTbl[1][i] +=5;
         }
 
         for (int i=0; i<s3Tables.digSize; i++){
             s3Tables.digTbl[1][i] +=5;
         }
-        exchangeData(&s3Tables);
+        exchangeData(&s3Tables); */
+
+        print_spi_stats();
 
         gpio_set_level(ledYellow,0);
         vTaskDelay(pdMS_TO_TICKS(5000));

@@ -25,7 +25,7 @@ ________________________________________________________________________________
 #define GPIO_CS 7
 #define GPIO_HANDSHAKE 8
 
-#define SPI_USE_POLLING     //Comment out this line for interrupt transactions
+//#define SPI_USE_POLLING     //Comment out this line for interrupt transactions
 
 extern spi_device_handle_t handle;
 extern uint16_t* recvbuf;

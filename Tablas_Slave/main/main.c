@@ -21,6 +21,7 @@
 // Macro definitions:
 //____________________________________________________________________________________________________
 #define SPI_BUFFER_SIZE 55
+#define SPI_ERROR_COUNT IOTables.auxTbl[1][1]
 
 //____________________________________________________________________________________________________
 // Global declarations:
@@ -80,7 +81,7 @@ void app_main(void)
     tablesInit(&IOTables, 2,    //Tablas de variables analógicas
                           2,    //Tablas de variables digitales
                           1,    //Tablas de configuración
-                          1,    //Tablas auxiliares
+                          2,    //Tablas auxiliares             //Segunda tabla auxiliar para registros propios de la Placa IO
                           16,   //Tamaño de tablas analógicas
                           2,    //Tamaño de tablas digitales
                           50,   //Tamaño de tablas de configuración
@@ -110,6 +111,7 @@ void app_main(void)
         esp_err_t r = spi_receive(4);
 
         if (r == ESP_OK){
+            SPI_ERROR_COUNT = 0;
             tbl = recvbuf[1];
             dataIndex = recvbuf[2];
             payload = recvbuf[3];
@@ -164,15 +166,19 @@ void app_main(void)
                     
                     if(r != ESP_OK){
                         ESP_LOGE(TAG, "CRC Error - Bad Checksum!");
+                        sendbuf[0] = 0xFFFF;            //Report communication error to the master
+                        spi_write(sendbuf, 1);
                         break;
                     }
+
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
 
                     for (int j=0; j < IOTables.anSize; j++){
                         IOTables.anTbl[tbl][j] = recvbuf[j];
                         recvbuf[j]=0;
                     }
-                    tablePrint(IOTables.anTbl[tbl], IOTables.anSize);
-                    
+                    tablePrint(IOTables.anTbl[tbl], IOTables.anSize);                   
                     break;
 
                 case 6:             //Write request for digital table
@@ -181,9 +187,14 @@ void app_main(void)
                     
                     if(r != ESP_OK){
                         ESP_LOGE(TAG, "CRC Error - Bad Checksum!");
+                        sendbuf[0] = 0xFFFF;            //Report communication error to the master
+                        spi_write(sendbuf, 1);
                         break;
                     }
                     
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
+
                     for (int j=0; j < IOTables.digSize; j++){
                         IOTables.digTbl[tbl][j] = recvbuf[j];
                         recvbuf[j]=0;
@@ -193,11 +204,19 @@ void app_main(void)
 
                 case 7:             //Write request for single analog data
                     IOTables.anTbl[tbl][dataIndex] = payload;
+
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
+
                     printf("Written %u to analog table %u at index %u\n", (uint16_t)IOTables.anTbl[tbl][dataIndex], tbl, dataIndex);
                     break;
                 
                 case 8:             //Write request for single digital data
                     IOTables.digTbl[tbl][dataIndex] = payload;
+                    
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
+
                     printf("Written %u to digital table %u at index %u\n", (uint16_t)IOTables.digTbl[tbl][dataIndex], tbl, dataIndex);
                     break;
 
@@ -227,8 +246,13 @@ void app_main(void)
 
                     if(r != ESP_OK){
                         ESP_LOGE(TAG, "CRC Error - Bad Checksum!");
+                        sendbuf[0] = 0xFFFF;            //Report communication error to the master
+                        spi_write(sendbuf, 1);
                         break;
                     }
+
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
 
                     for (int j=0; j < IOTables.configSize; j++){
                         IOTables.configTbl[tbl][j] = recvbuf[j];
@@ -243,8 +267,13 @@ void app_main(void)
 
                     if(r != ESP_OK){
                         ESP_LOGE(TAG, "CRC Error - Bad Checksum!");
+                        sendbuf[0] = 0xFFFF;            //Report communication error to the master
+                        spi_write(sendbuf, 1);
                         break;
                     }
+
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
 
                     for (int j=0; j < IOTables.auxSize; j++){
                         IOTables.auxTbl[tbl][j] = recvbuf[j];
@@ -255,11 +284,19 @@ void app_main(void)
 
                 case 13:             //Write request for single config data
                     IOTables.configTbl[tbl][dataIndex] = payload;
+                    
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
+
                     printf("Written %u to config table %u at index %u\n", (uint16_t)IOTables.configTbl[tbl][dataIndex], tbl, dataIndex);
                     break;
 
                 case 14:             //Write request for single aux data
                     IOTables.auxTbl[tbl][dataIndex] = payload;
+                    
+                    sendbuf[0] = 0x0;                   //Report success to the master
+                    spi_write(sendbuf, 1);
+
                     printf("Written %u to aux table %u at index %u\n", (uint16_t)IOTables.auxTbl[tbl][dataIndex], tbl, dataIndex);
                     break;
 
@@ -306,16 +343,26 @@ void app_main(void)
                     tablePrint( IOTables.digTbl[1],  IOTables.digSize);
                     break;
 
+                case 18:             // Test and diagnose case (Echo)
+                    sendbuf[0] = recvbuf[0];
+                    sendbuf[1] = recvbuf[1];
+                    sendbuf[2] = recvbuf[2];
+                    sendbuf[3] = recvbuf[3];
+                    spi_write(sendbuf, 4);
+                    break;
+
                 default:            //Command not recognized
                     sendbuf[0] = 0xFFFF;
                     spi_write(sendbuf, 1);
                     ESP_LOGE(TAG, "Command not recognized! %u\n", sendbuf[0]);
+                    SPI_ERROR_COUNT++;
             }
         }
         else{                       //Communication CRC16 error - Bad checksum
             sendbuf[0] = 0xFFFF;
             spi_write(sendbuf, 1);
             ESP_LOGE(TAG, "Communication CRC16 error - Bad checksum!");
+            SPI_ERROR_COUNT++;
         }
         
         //Actualizar los vectores analógicos:
@@ -333,7 +380,8 @@ void app_main(void)
                 IOTables.digTbl[i][j] += 1;
             }
         }
-
+        if (SPI_ERROR_COUNT > 10)
+            esp_restart();
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
