@@ -35,6 +35,8 @@
 #define SPI_ERROR_COUNT s3Tables.auxTbl[1][1]
 
 #define SPI_EXCHANGE_TIME s3Tables.auxTbl[1][2]
+#define SPI_CYCLE_TIME s3Tables.auxTbl[1][3]
+
 
 //____________________________________________________________________________________________________
 // Global declarations:
@@ -64,6 +66,8 @@ varTables_t s3Tables;
 
 //The semaphore indicating the slave is ready to receive stuff.
 QueueHandle_t rdySem;
+
+uint16_t cycleTimeStart, cycleTimeFinish;
 
 //____________________________________________________________________________________________________
 // Function prototypes:
@@ -119,7 +123,7 @@ static void IRAM_ATTR gpio_handshake_isr_handler(void* arg)
     static uint32_t lasthandshaketime_us;
     uint32_t currtime_us = esp_timer_get_time();
     uint32_t diff = currtime_us - lasthandshaketime_us;
-    if (diff < 100) {
+    if (diff < 50) {
         return; //ignore everything <1ms after an earlier irq
     }
     lasthandshaketime_us = currtime_us;
@@ -174,17 +178,24 @@ void app_main(void)
     sendbuf = (uint16_t*)heap_caps_malloc(SPI_BUFFER_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
     recvbuf = (uint16_t*)heap_caps_malloc(SPI_BUFFER_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
 
+    //Create the semaphore.
+    rdySem=xSemaphoreCreateBinary();
+    
     TaskHandle_t xHandle = NULL;
-    xTaskCreate(spi_task,
+    /* xTaskCreate(spi_task,
                 "spi_task",
                 STACK_SIZE,
                 NULL,
                 tskIDLE_PRIORITY,
-                &xHandle);
+                &xHandle); */
 
-    //Create the semaphore.
-    rdySem=xSemaphoreCreateBinary();
-
+    xTaskCreatePinnedToCore(spi_task,
+                "spi_task",
+                STACK_SIZE,
+                NULL,
+                (UBaseType_t) 1U,       //Priority Level 1
+                &xHandle,
+                0);          
 
     while (1){     
         for (int i=0; i<s3Tables.anSize; i++){
@@ -196,11 +207,16 @@ void app_main(void)
 
         print_spi_stats();
 
-        printf("SPI Exchange task time: %u us\n\n", SPI_EXCHANGE_TIME);
-
+        printf("SPI exchange task time: %u us\n\n", SPI_EXCHANGE_TIME);
+        printf("SPI cycle task time: %u us\n\n", SPI_CYCLE_TIME);
+        
+        ESP_LOGI(TAG, "Analog inputs table:");
         tablePrint(s3Tables.anTbl[0],  s3Tables.anSize);
-        tablePrint(s3Tables.anTbl[1],  s3Tables.anSize);
+        ESP_LOGI(TAG, "Digital inputs table:");
         tablePrint(s3Tables.digTbl[0], s3Tables.digSize);
+        ESP_LOGW(TAG, "Analog outputs table:\n");
+        tablePrint(s3Tables.anTbl[1],  s3Tables.anSize);
+        ESP_LOGW(TAG, "Digital outputs table:\n");
         tablePrint(s3Tables.digTbl[1], s3Tables.digSize);
 
         gpio_set_level(ledGreen, 0);
@@ -865,20 +881,31 @@ void print_spi_stats(){
 //____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
 {
-    uint16_t tiempoInicio, tiempoFin;
+    uint16_t exchgTimeStart, exchgTimeFinish;
+    //vTaskDelay(pdMS_TO_TICKS(100));
     init_spi();
 
-    //xSemaphoreGive(rdySem);
-
+    xSemaphoreGive(rdySem);
+    cycleTimeStart = 0;
     
     while (1)
     {
-        tiempoInicio = esp_timer_get_time();
+        cycleTimeFinish = esp_timer_get_time();
+        SPI_CYCLE_TIME = cycleTimeFinish - cycleTimeStart + SPI_EXCHANGE_TIME;
+
+        //SPI exchange block:
+        //______________________________________________________
+        exchgTimeStart = esp_timer_get_time();
         gpio_set_level(ledYellow,1);
         exchangeData(&s3Tables);
         gpio_set_level(ledYellow,0);
-        tiempoFin = esp_timer_get_time();
-        SPI_EXCHANGE_TIME = (tiempoFin - tiempoInicio);
-        vTaskDelay(pdMS_TO_TICKS(1));
+        exchgTimeFinish = esp_timer_get_time();
+        //______________________________________________________
+
+        cycleTimeStart = esp_timer_get_time();
+        SPI_EXCHANGE_TIME = (exchgTimeFinish - exchgTimeStart);
+
+        //vTaskDelay(pdMS_TO_TICKS(1));
+        taskYIELD();
     }
 }

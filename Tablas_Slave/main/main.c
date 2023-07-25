@@ -382,7 +382,8 @@ void app_main(void)
         }
         if (SPI_ERROR_COUNT > 10)
             esp_restart();
-        vTaskDelay(pdMS_TO_TICKS(1));
+        //vTaskDelay(pdMS_TO_TICKS(1));
+        taskYIELD();
     }
 
     //Free memory
