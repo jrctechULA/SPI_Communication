@@ -47,7 +47,7 @@ esp_err_t init_spi(void)
 
 esp_err_t spi_receive(uint8_t nData)
 {
-    static const char TAG[] = "SPI Slave";
+    //static const char TAG[] = "SPI Slave";
     spi_slave_transaction_t t;
     memset(&t, 0, sizeof(t));
     if (((nData + 1) * 2) % 4)                //Data must be 32bit aligned!
@@ -65,7 +65,7 @@ esp_err_t spi_receive(uint8_t nData)
         return ESP_FAIL;
     }
 
-    ESP_LOGW(TAG, "Received %u %u %u %u %u", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3], recvbuf[4]);
+    //ESP_LOGW(TAG, "Received %u %u %u %u %u", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3], recvbuf[4]);
     return ESP_OK;
 } 
 
@@ -89,7 +89,7 @@ esp_err_t spi_write(uint16_t *payload, uint8_t nData)
 }
 
 esp_err_t spi_exchange(uint8_t nData){
-    static const char TAG[] = "SPI Slave";
+    //static const char TAG[] = "SPI Slave";
 
     sendbuf[nData] = checksumTable(sendbuf, nData);
 
@@ -110,7 +110,7 @@ esp_err_t spi_exchange(uint8_t nData){
         return ESP_FAIL;
     }
 
-    ESP_LOGW(TAG, "Received %u %u %u %u %u", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3], recvbuf[4]);
+    //ESP_LOGW(TAG, "Received %u %u %u %u %u", recvbuf[0], recvbuf[1], recvbuf[2], recvbuf[3], recvbuf[4]);
     return ESP_OK;
 }
 

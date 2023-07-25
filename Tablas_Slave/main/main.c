@@ -317,7 +317,7 @@ void app_main(void)
                     break;
 
                 case 17:             //Request to exchange input and output vars         
-                    tiempoInicio = esp_timer_get_time();
+                    //tiempoInicio = esp_timer_get_time();
 
                     for (int i=0; i<IOTables.anSize; i++){
                         sendbuf[i] = IOTables.anTbl[0][i];
@@ -333,14 +333,14 @@ void app_main(void)
                     for (int i=0; i<IOTables.digSize; i++)
                         IOTables.digTbl[1][i] = recvbuf[IOTables.anSize + i];
 
-                    tiempoFin = esp_timer_get_time();
-                    tiempoTranscurrido = (tiempoFin - tiempoInicio) / 1000;
-                    printf("El tiempo de ejecución fue de %llu milisegundos\n", tiempoTranscurrido);
+                    //tiempoFin = esp_timer_get_time();
+                    //tiempoTranscurrido = (tiempoFin - tiempoInicio) / 1000;
+                    //printf("El tiempo de ejecución fue de %llu milisegundos\n", tiempoTranscurrido);
 
-                    tablePrint( IOTables.anTbl[0],  IOTables.anSize);
+                    /* tablePrint( IOTables.anTbl[0],  IOTables.anSize);
                     tablePrint( IOTables.anTbl[1],  IOTables.anSize);
                     tablePrint( IOTables.digTbl[0],  IOTables.digSize);
-                    tablePrint( IOTables.digTbl[1],  IOTables.digSize);
+                    tablePrint( IOTables.digTbl[1],  IOTables.digSize); */
                     break;
 
                 case 18:             // Test and diagnose case (Echo)
@@ -382,7 +382,7 @@ void app_main(void)
         }
         if (SPI_ERROR_COUNT > 10)
             esp_restart();
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     //Free memory

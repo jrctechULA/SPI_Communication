@@ -10,6 +10,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+//#include "freertos/queue.h"
 
 #include "driver/gpio.h"
 
@@ -32,6 +33,8 @@
 
 #define SPI_TRANSACTION_COUNT s3Tables.auxTbl[1][0]
 #define SPI_ERROR_COUNT s3Tables.auxTbl[1][1]
+
+#define SPI_EXCHANGE_TIME s3Tables.auxTbl[1][2]
 
 //____________________________________________________________________________________________________
 // Global declarations:
@@ -183,12 +186,31 @@ void app_main(void)
     rdySem=xSemaphoreCreateBinary();
 
 
+    while (1){     
+        for (int i=0; i<s3Tables.anSize; i++){
+            s3Tables.anTbl[1][i] +=5;
+        }
+        for (int i=0; i<s3Tables.digSize; i++){
+            s3Tables.digTbl[1][i] +=5;
+        }
 
-    while (1){
-        gpio_set_level(ledGreen,0);    
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        gpio_set_level(ledGreen,1);    
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        print_spi_stats();
+
+        printf("SPI Exchange task time: %u us\n\n", SPI_EXCHANGE_TIME);
+
+        tablePrint(s3Tables.anTbl[0],  s3Tables.anSize);
+        tablePrint(s3Tables.anTbl[1],  s3Tables.anSize);
+        tablePrint(s3Tables.digTbl[0], s3Tables.digSize);
+        tablePrint(s3Tables.digTbl[1], s3Tables.digSize);
+
+        gpio_set_level(ledGreen, 0);
+        vTaskDelay(pdMS_TO_TICKS(500));       
+        gpio_set_level(ledGreen, 1);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        /* printf("\nSPI taken by app main\n");
+        readAllTables(&s3Tables); */
+        
     }
     
     //Liberar memoria
@@ -796,8 +818,6 @@ esp_err_t exchangeData(varTables_t *Tables){
     sendbuf[2] = 0;
     sendbuf[3] = 0;
 
-    //sendbuf[4] = checksumTable(sendbuf, 4);
-
     spi_write(sendbuf, 4);
 
     for (int i=0; i<Tables->anSize; i++){
@@ -807,7 +827,7 @@ esp_err_t exchangeData(varTables_t *Tables){
         sendbuf[Tables->anSize + i] = Tables->digTbl[1][i];
     }
 
-    uint64_t tiempoInicio = esp_timer_get_time();
+    //uint64_t tiempoInicio = esp_timer_get_time();
 
     esp_err_t err = spi_exchange(Tables->anSize + Tables->digSize);
     if (err == ESP_FAIL){
@@ -816,7 +836,7 @@ esp_err_t exchangeData(varTables_t *Tables){
     }
         
 
-    uint64_t tiempoFin = esp_timer_get_time();
+    //uint64_t tiempoFin = esp_timer_get_time();
 
     //Recover data from recvbuf here:
     for (int i=0; i<Tables->anSize; i++)
@@ -825,15 +845,15 @@ esp_err_t exchangeData(varTables_t *Tables){
         Tables->digTbl[0][i] = recvbuf[Tables->anSize + i];
 
     //uint64_t tiempoFin = esp_timer_get_time();
-    uint64_t tiempoTranscurrido = (tiempoFin - tiempoInicio) / 1000;
-    printf("El tiempo de ejecución fue de %llu milisegundos\n", tiempoTranscurrido);
-    tablePrint(Tables->anTbl[0],  Tables->anSize);
+    //uint64_t tiempoTranscurrido = (tiempoFin - tiempoInicio) / 1000;
+    //printf("El tiempo de ejecución fue de %llu milisegundos\n", tiempoTranscurrido);
+    /* tablePrint(Tables->anTbl[0],  Tables->anSize);
     tablePrint(Tables->anTbl[1],  Tables->anSize);
     tablePrint(Tables->digTbl[0], Tables->digSize);
-    tablePrint(Tables->digTbl[1], Tables->digSize);
-    printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
-        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT);
-    //vTaskDelay(pdMS_TO_TICKS(10));
+    tablePrint(Tables->digTbl[1], Tables->digSize); */
+    /* printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+        SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT); */
+    
     return ESP_OK;
 }
 
@@ -845,136 +865,20 @@ void print_spi_stats(){
 //____________________________________________________________________________________________________
 void spi_task(void *pvParameters)
 {
+    uint16_t tiempoInicio, tiempoFin;
     init_spi();
 
     //xSemaphoreGive(rdySem);
 
-    //______________________________________________________
-    //Some test code to run once...  (See serial terminal for debug)
-    //______________________________________________________
-    //vTaskDelay(pdMS_TO_TICKS(1000));
-
-    //Write config table 0:
-    /* for (int i=0; i<s3Tables.configSize; i++)
-        s3Tables.configTbl[0][i] = 1;
-    writeConfigTable(&s3Tables, 0); */
-
-    //Write aux table 0:
-    /* for (int i=0; i<s3Tables.auxSize; i++)
-        s3Tables.auxTbl[0][i] = 2;
-    writeAuxTable(&s3Tables, 0); */
-
-    //Write config and aux data at index 15:
-    //writeConfigData(0, 15, 99);
-    //writeAuxData(0, 15, 88);
-
-    //Read config and aux data at index 15:
-    /* readConfigData(&s3Tables, 0, 15);
-    readAuxData(&s3Tables, 0, 15); */
-
+    
     while (1)
     {
-        //Some test code to run repeteadly...
-
+        tiempoInicio = esp_timer_get_time();
         gpio_set_level(ledYellow,1);
-
-        //______________________________________________________
-        //Ask tables testing code:
-
-        //readAllTables(&s3Tables);
-        
-
-        //______________________________________________________
-        //Ask single data testing code:
-
-        /* for (int i = 0; i < s3Tables.numAnTbls; i++){
-            for (int j = 0; j < s3Tables.anSize; j++){
-                readAnalogData(&s3Tables, i, j);
-            }
-        }
-        for (int i = 0; i < s3Tables.numDigTbls; i++){
-            for (int j = 0; j < s3Tables.digSize; j++){
-                readDigitalData(&s3Tables, i, j);
-            }
-        } */
-
-
-        //______________________________________________________
-        //Write table testing code:
-
-        /* for (int i = 0; i < s3Tables.anSize; i++){
-            s3Tables.anTbl[1][i] = i+555;
-        }
-        writeAnalogTable(&s3Tables, 1);
-
-        for (int i = 0; i < s3Tables.digSize; i++){
-            s3Tables.digTbl[1][i] = i+123;
-        }
-        writeDigitalTable(&s3Tables, 1); */
-        
-        //______________________________________________________
-        //Write single data testing code:
-
-        for (int i = 0; i < s3Tables.numAnTbls; i++){
-            for (int j = 0; j < s3Tables.anSize; j++){
-                writeAnalogData(i, j, 5*j);
-            }
-        }
-        for (int i = 0; i < s3Tables.numDigTbls; i++){
-            for (int j = 0; j < s3Tables.digSize; j++){
-                writeDigitalData(i, j, 5*j);
-            }
-        }
-
-        //Write config and aux data at index 15:
-        writeConfigData(0, 15, 99);
-        writeAuxData(0, 15, 88);
-        
-
-        //______________________________________________________
-        //Ask config and aux tables testing code:
-
-        /* readConfigTable(&s3Tables, 0);
-        tablePrint(s3Tables.configTbl[0], s3Tables.configSize);
-
-        readAuxTable(&s3Tables, 0);
-        tablePrint(s3Tables.auxTbl[0], s3Tables.auxSize); */
-
-        //______________________________________________________
-        /* readAnalogData(&s3Tables, 0, 1);
-        readDigitalData(&s3Tables, 0, 1);
-        readConfigData(&s3Tables, 0, 15);
-        readAuxData(&s3Tables, 0, 15); */
-
-        
-        //______________________________________________________
-
-        /* for (int i=0; i<s3Tables.configSize; i++)
-            s3Tables.configTbl[0][i] = 1;
-        writeConfigTable(&s3Tables, 0);
-
-        for (int i=0; i<s3Tables.auxSize; i++)
-            s3Tables.auxTbl[0][i] = 1;
-        writeAuxTable(&s3Tables, 0); */
-
-
-        /* for (int i=0; i<s3Tables.anSize; i++){
-            s3Tables.anTbl[1][i] +=5;
-        }
-
-        for (int i=0; i<s3Tables.digSize; i++){
-            s3Tables.digTbl[1][i] +=5;
-        }
-        exchangeData(&s3Tables); */
-
-        print_spi_stats();
-
+        exchangeData(&s3Tables);
         gpio_set_level(ledYellow,0);
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        tiempoFin = esp_timer_get_time();
+        SPI_EXCHANGE_TIME = (tiempoFin - tiempoInicio);
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
-
-
-
-
-

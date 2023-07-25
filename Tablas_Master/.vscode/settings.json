@@ -13,7 +13,7 @@
     ],
     "idf.pythonBinPathWin": "C:\\Users\\javie\\.espressif\\python_env\\idf5.0_py3.8_env\\Scripts\\python.exe",
     "idf.toolsPathWin": "C:\\Users\\javie\\.espressif",
-    "idf.portWin": "COM3",
+    "idf.portWin": "COM6",
     "idf.flashType": "UART",
     "files.associations": {
         "array": "c",
@@ -22,6 +22,9 @@
         "regex": "c",
         "esp_crc.h": "c",
         "esp_timer.h": "c",
-        "esp_heap_caps.h": "c"
+        "esp_heap_caps.h": "c",
+        "freertos.h": "c",
+        "freertosconfig.h": "c",
+        "queue.h": "c"
     }
 }

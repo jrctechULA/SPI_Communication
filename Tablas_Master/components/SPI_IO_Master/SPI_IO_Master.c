@@ -52,7 +52,7 @@ esp_err_t init_spi(void)
 
 esp_err_t spi_write(uint16_t *payload, uint8_t nData) 
 {
-    static const char TAG[] = "SPI Master";
+    //static const char TAG[] = "SPI Master";
 
     payload[nData] = checksumTable(payload, nData);
 
@@ -73,7 +73,7 @@ esp_err_t spi_write(uint16_t *payload, uint8_t nData)
     #else
        spi_device_transmit(handle, &t);
     #endif
-    ESP_LOGI(TAG, "Transmitted: %u %u %u %u %u", payload[0], payload[1], payload[2], payload[3], payload[4]);
+    //ESP_LOGI(TAG, "Transmitted: %u %u %u %u %u", payload[0], payload[1], payload[2], payload[3], payload[4]);
     return ESP_OK;
 }
 
