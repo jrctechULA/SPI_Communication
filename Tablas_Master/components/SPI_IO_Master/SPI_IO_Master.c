@@ -35,6 +35,12 @@ esp_err_t init_spi(void)
     spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     spi_bus_add_device(SPI2_HOST, &devcfg, &handle);
 
+    spi_test();
+
+    return ESP_OK;
+}
+
+void spi_test(void){
     esp_err_t res;
     do {
         sendbuf[0] = 18;
@@ -46,8 +52,7 @@ esp_err_t init_spi(void)
         res = spi_receive(4);
         vTaskDelay(pdMS_TO_TICKS(100));
     } while((res != ESP_OK) || (recvbuf[0] != sendbuf[0]) || (recvbuf[1] != sendbuf[1]) || (recvbuf[2] != sendbuf[2]) || (recvbuf[3] != sendbuf[3]));
-
-    return ESP_OK;
+    
 }
 
 esp_err_t spi_write(uint16_t *payload, uint8_t nData) 
@@ -65,7 +70,9 @@ esp_err_t spi_write(uint16_t *payload, uint8_t nData)
     t.tx_buffer = payload;
     t.rx_buffer = NULL;
 
-    xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    //xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    while (xSemaphoreTake(rdySem, portMAX_DELAY) != pdTRUE)
+            continue;
 
     #ifdef SPI_USE_POLLING
         //ESP_LOGW(TAG, "Polling transactions activated!");
@@ -89,7 +96,9 @@ esp_err_t spi_receive(uint8_t nData)
     t.tx_buffer = NULL;
     t.rx_buffer = recvbuf;
 
-    xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    //xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    while (xSemaphoreTake(rdySem, portMAX_DELAY) != pdTRUE)
+            continue;
 
     #ifdef SPI_USE_POLLING
         //ESP_LOGW(TAG, "Polling transactions activated!");
@@ -137,7 +146,9 @@ esp_err_t spi_exchange(uint8_t nData){
     t.tx_buffer = sendbuf;
     t.rx_buffer = recvbuf;
 
-    xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    //xSemaphoreTake(rdySem, portMAX_DELAY); //Wait until slave is ready
+    while (xSemaphoreTake(rdySem, portMAX_DELAY) != pdTRUE)
+            continue;
 
     #ifdef SPI_USE_POLLING
         //ESP_LOGW(TAG, "Polling transactions activated!");

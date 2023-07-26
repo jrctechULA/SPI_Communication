@@ -66,6 +66,7 @@ varTables_t s3Tables;
 
 //The semaphore indicating the slave is ready to receive stuff.
 QueueHandle_t rdySem;
+QueueHandle_t spiTaskSem;
 
 uint16_t cycleTimeStart, cycleTimeFinish;
 
@@ -179,7 +180,8 @@ void app_main(void)
     recvbuf = (uint16_t*)heap_caps_malloc(SPI_BUFFER_SIZE * sizeof(uint16_t), MALLOC_CAP_DMA);
 
     //Create the semaphore.
-    rdySem=xSemaphoreCreateBinary();
+    rdySem = xSemaphoreCreateBinary();
+    spiTaskSem = xSemaphoreCreateBinary();
     
     TaskHandle_t xHandle = NULL;
     /* xTaskCreate(spi_task,
@@ -196,8 +198,10 @@ void app_main(void)
                 (UBaseType_t) 1U,       //Priority Level 1
                 &xHandle,
                 0);          
+    xSemaphoreGive(spiTaskSem);
+    int counter = 0;
 
-    while (1){     
+    while (1){   
         for (int i=0; i<s3Tables.anSize; i++){
             s3Tables.anTbl[1][i] +=5;
         }
@@ -207,16 +211,16 @@ void app_main(void)
 
         print_spi_stats();
 
-        printf("SPI exchange task time: %u us\n\n", SPI_EXCHANGE_TIME);
+        printf("SPI exchange task time: %u us\n", SPI_EXCHANGE_TIME);
         printf("SPI cycle task time: %u us\n\n", SPI_CYCLE_TIME);
         
         ESP_LOGI(TAG, "Analog inputs table:");
         tablePrint(s3Tables.anTbl[0],  s3Tables.anSize);
         ESP_LOGI(TAG, "Digital inputs table:");
         tablePrint(s3Tables.digTbl[0], s3Tables.digSize);
-        ESP_LOGW(TAG, "Analog outputs table:\n");
+        ESP_LOGW(TAG, "Analog outputs table:");
         tablePrint(s3Tables.anTbl[1],  s3Tables.anSize);
-        ESP_LOGW(TAG, "Digital outputs table:\n");
+        ESP_LOGW(TAG, "Digital outputs table:");
         tablePrint(s3Tables.digTbl[1], s3Tables.digSize);
 
         gpio_set_level(ledGreen, 0);
@@ -224,8 +228,15 @@ void app_main(void)
         gpio_set_level(ledGreen, 1);
         vTaskDelay(pdMS_TO_TICKS(500));
 
-        /* printf("\nSPI taken by app main\n");
-        readAllTables(&s3Tables); */
+        counter++;
+        if (counter == 15){
+            while (xSemaphoreTake(spiTaskSem, portMAX_DELAY) != pdTRUE)
+                continue;
+            ESP_LOGE(TAG, "SPI taken by app main");
+            readAllTables(&s3Tables);
+            xSemaphoreGive(spiTaskSem);
+            counter = 0;
+        }
         
     }
     
@@ -367,6 +378,10 @@ esp_err_t tablesUnload(varTables_t *tables){
 
 esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 1;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -400,6 +415,10 @@ esp_err_t readAnalogTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 2;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -433,6 +452,10 @@ esp_err_t readDigitalTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 9;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -466,6 +489,10 @@ esp_err_t readConfigTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t readAuxTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 10;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -514,6 +541,10 @@ esp_err_t readAllTables(varTables_t *Tables){
 
 esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 3;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -547,6 +578,10 @@ esp_err_t readAnalogData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
 
 esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 4;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -579,6 +614,10 @@ esp_err_t readDigitalData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
 
 esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 15;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -611,6 +650,10 @@ esp_err_t readConfigData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
 
 esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 16;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -643,6 +686,10 @@ esp_err_t readAuxData(varTables_t *Tables, uint8_t tbl, uint8_t dataIndex){
 
 esp_err_t writeAnalogTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 5;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -668,6 +715,10 @@ esp_err_t writeAnalogTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t writeDigitalTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 6;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -693,6 +744,10 @@ esp_err_t writeDigitalTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t writeConfigTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 11;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -718,6 +773,10 @@ esp_err_t writeConfigTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t writeAuxTable(varTables_t *Tables, uint8_t tbl){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 12;
     sendbuf[1] = tbl;
     sendbuf[2] = 0;
@@ -743,6 +802,10 @@ esp_err_t writeAuxTable(varTables_t *Tables, uint8_t tbl){
 
 esp_err_t writeAnalogData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 7;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -764,6 +827,10 @@ esp_err_t writeAnalogData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
 
 esp_err_t writeDigitalData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 8;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -785,6 +852,10 @@ esp_err_t writeDigitalData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
 
 esp_err_t writeConfigData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 13;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -806,6 +877,10 @@ esp_err_t writeConfigData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
 
 esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     sendbuf[0] = 14;
     sendbuf[1] = tbl;
     sendbuf[2] = dataIndex;
@@ -827,6 +902,10 @@ esp_err_t writeAuxData(uint8_t tbl, uint8_t dataIndex, uint16_t payload){
 
 esp_err_t exchangeData(varTables_t *Tables){
     SPI_TRANSACTION_COUNT++;
+    if (SPI_TRANSACTION_COUNT == 0xFFFF){
+        SPI_TRANSACTION_COUNT = 0;
+        SPI_ERROR_COUNT = 0;
+    }
     //uint64_t tiempoInicio = esp_timer_get_time();
 
     sendbuf[0] = 17;
@@ -874,7 +953,7 @@ esp_err_t exchangeData(varTables_t *Tables){
 }
 
 void print_spi_stats(){
-    printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n\n", 
+    printf("\nTransaction count: %u Error count: %u Eror ratio: %.2f%%\n", 
         SPI_TRANSACTION_COUNT, SPI_ERROR_COUNT, (float)SPI_ERROR_COUNT * 100/SPI_TRANSACTION_COUNT);
 }
 // freeRTOS tasks implementations:
@@ -897,7 +976,14 @@ void spi_task(void *pvParameters)
         //______________________________________________________
         exchgTimeStart = esp_timer_get_time();
         gpio_set_level(ledYellow,1);
-        exchangeData(&s3Tables);
+        while (xSemaphoreTake(spiTaskSem, portMAX_DELAY) != pdTRUE)
+            continue;
+        esp_err_t res = exchangeData(&s3Tables);
+        if (res != ESP_OK){
+            ESP_LOGE("spi_task", "Communication error! Trying to fix...");
+            spi_test();
+        }
+        xSemaphoreGive(spiTaskSem);
         gpio_set_level(ledYellow,0);
         exchgTimeFinish = esp_timer_get_time();
         //______________________________________________________

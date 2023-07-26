@@ -34,6 +34,7 @@ extern uint16_t* sendbuf;
 extern QueueHandle_t rdySem;
 
 esp_err_t init_spi(void);
+void spi_test(void);
 esp_err_t spi_write(uint16_t *payload, uint8_t nData);
 esp_err_t spi_receive(uint8_t nData);
 esp_err_t spi_exchange(uint8_t nData);
